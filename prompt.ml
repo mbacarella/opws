@@ -6,6 +6,7 @@ open Unix
 let read_password () =
   Printf.printf "Safe combination: ";
   read_line()
+
 (*
   let term_init = tcgetattr stdin in
   let term_no_echo = {term_init with c_echo = false; } in
