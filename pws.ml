@@ -68,6 +68,14 @@ let buffer_of_string s =
       b
     end
       
+let load_records ch chan p' =
+  let join ctx a b = String.concat "" [Twofish.decrypt ctx a; Twofish.decrypt ctx b] in
+  let joinkeys = join (Twofish.init p') in
+  let k = joinkeys ch.b1 ch.b2 in
+  let l = joinkeys ch.b3 ch.b4 in
+  let iv = ch.iv in
+    Printf.printf "random key K: %s\nrandom key L: %s\nCBC IV: %s\n" (Bin.hexstring k) (Bin.hexstring l) (Bin.hexstring iv)
+
 let load_database fn passphrase =
   let chan = open_in_gen [Open_binary] 0 fn in
   try
@@ -76,9 +84,9 @@ let load_database fn passphrase =
       let p' = keystretch (buffer_of_string passphrase) (buffer_of_string ch.salt) ch.iter in       
         let hofp' = Sha256.digest p' in (* hash yet another time... *)
           if (buffer_of_string ch.hofp) = hofp' then
-            Printf.printf "Passphrase match!\n"
+            load_records ch chan (Buffer.contents p')
           else
-            Printf.printf "Passphrase incorrect.\n";
+            (Printf.printf "Passphrase incorrect.\n"; exit 1)
           close_in chan
     end
   with

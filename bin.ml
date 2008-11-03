@@ -39,3 +39,13 @@ let pack x n =
 let pack32 x = pack x 32
 let pack16 x = pack x 16
 let pack8 x = pack x 8
+
+let hexstring a = 
+  let rec loop i =
+    if i = String.length a then
+      ""
+    else
+	(Printf.sprintf "%02x" (ord a.[i])) ^ (loop (i+1))
+  in
+  loop 0
+

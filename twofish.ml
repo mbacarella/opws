@@ -30,15 +30,6 @@ let xor4_32 a b c d = (xor32 a (xor32 b (xor32 c d)))
 let ord x = int_of_char x
 let ord32 x = Int32.of_int (ord x)
 
-let hexstring a = 
-  let rec loop i =
-    if i = String.length a then
-      ""
-    else
-	(Printf.sprintf "%02x" (int_of_char a.[i])) ^ (loop (i+1))
-  in
-  loop 0
-
 type ctx = {
     k : Int32.t array;
     s : Int32.t array array; (* s-boxes *)
@@ -526,6 +517,7 @@ let decrypt ctx text =
                   (xor32 k.(2) r0);
                   (xor32 k.(3) r1) |]
 
+(* CBC mode protocol goes here *)
 
 let test() =
   let results = List.map (fun (k,p,c) ->

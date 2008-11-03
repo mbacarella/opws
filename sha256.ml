@@ -73,6 +73,12 @@ let init () =
     |];
   }
 
+let rec range i j =
+  if i > j then
+    []
+  else
+    i :: (range (i+1) j)
+
 let update ctx message =
   let sha = ctx.h in
   let message_bits = as_bits (Buffer.length message) in
@@ -80,53 +86,31 @@ let update ctx message =
       failwith ("update: message must be 512 bits; got "
                 ^(string_of_int message_bits)^" bits")
     else
+      let mm i = Buffer.nth message i in
       let w = Array.make bs_in_bytes 0l in
         begin
           for t = 0 to 15 do
-            w.(t) <- (or_int32 (left_int32 (to_int32 (Buffer.nth message (t*4  ))) 24)
-                     (or_int32 (left_int32 (to_int32 (Buffer.nth message (t*4+1))) 16)
-                     (or_int32 (left_int32 (to_int32 (Buffer.nth message (t*4+2)))  8)
-                                           (to_int32 (Buffer.nth message (t*4+3)))   )));
+            w.(t) <- (or_int32 (left_int32 (to_int32 (mm (t*4  ))) 24)
+                     (or_int32 (left_int32 (to_int32 (mm (t*4+1))) 16)
+                     (or_int32 (left_int32 (to_int32 (mm (t*4+2)))  8)
+                                           (to_int32 (mm (t*4+3)))   )));
           done;
           for t = 16 to 63 do
             w.(t) <- add_int32 (add_int32 (rh01 w.(t-2)) w.(t-7)) (add_int32 (rh00 w.(t-15)) w.(t-16))
           done;
-          let tem = [| 0l; 0l |] in
-          let a = ref sha.(0) in 
-          let b = ref sha.(1) in
-          let c = ref sha.(2) in
-          let d = ref sha.(3) in 
-          let e = ref sha.(4) in
-          let f = ref sha.(5) in
-          let g = ref sha.(6) in
-          let h = ref sha.(7) in
-            for t = 0 to 63 do
-              begin
-                tem.(0) <- add_int32 (add_int32 !h (sum1 !e)) (add_int32 (ch !e !f !g) (add_int32 k.(t) w.(t)));
-                tem.(1) <- add_int32 (sum0 !a) (maj !a !b !c);
-                h := !g;
-                g := !f;
-                f := !e;
-                e := add_int32 !d tem.(0);
-                d := !c;
-                c := !b;
-                b := !a;
-                a := add_int32 tem.(0) tem.(1);
-              end
-            done;
-            sha.(0) <- add_int32 sha.(0) !a;
-            sha.(1) <- add_int32 sha.(1) !b;
-            sha.(2) <- add_int32 sha.(2) !c;
-            sha.(3) <- add_int32 sha.(3) !d;
-            sha.(4) <- add_int32 sha.(4) !e;
-            sha.(5) <- add_int32 sha.(5) !f;
-            sha.(6) <- add_int32 sha.(6) !g;
-            sha.(7) <- add_int32 sha.(7) !h;
-            
-            (* good faith attempt to clear memory *)
-            for i = 0 to 63 do w.(i) <- 0l done;
-            tem.(0) <- 0l; tem.(1) <- 0l;
-            a := 0l; b := 0l; c := 0l; d := 0l; e := 0l; f := 0l; g := 0l; h := 0l;
+
+          let rec hround (a,b,c,d,e,f,g,h) = function
+            | 64 -> [|
+                add_int32 sha.(0) a; add_int32 sha.(1) b;
+                add_int32 sha.(2) c; add_int32 sha.(3) d;
+                add_int32 sha.(4) e; add_int32 sha.(5) f;
+                add_int32 sha.(6) g; add_int32 sha.(7) h |]
+            | t -> 
+                let t0 = add_int32 (add_int32 h (sum1 e)) (add_int32 (ch e f g) (add_int32 k.(t) w.(t))) in
+                let t1 = add_int32 (sum0 a) (maj a b c) in
+                  hround ((add_int32 t0 t1), a, b, c, (add_int32 d t0), e, f, g) (t+1)
+          in
+            ctx.h <- hround (sha.(0), sha.(1), sha.(2), sha.(3), sha.(4), sha.(5), sha.(6), sha.(7)) 0;
             ctx.total_length <- (add_int64 ctx.total_length (Int64.of_int message_bits));
         end
 
@@ -228,6 +212,5 @@ let test () =
     ("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "6bc3b8eaea5380e522ff7df7736989b5e3fff569ba75003be63a8e7ab9c8123e");
   ]
 
-(*
 let () = test ()
-*)
+
