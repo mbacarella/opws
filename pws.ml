@@ -1,7 +1,6 @@
 
 (* see formatv3.txt for an explanation *)
 
-
 type clear_header =
   {
     tag: string;
