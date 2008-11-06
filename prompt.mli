@@ -1,2 +1,2 @@
 
-val read_password : unit -> string
+val read_password : string -> string option
