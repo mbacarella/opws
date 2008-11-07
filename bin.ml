@@ -1,6 +1,12 @@
 
 let ord = int_of_char
 
+let unpack_components a b c d =
+  ((ord a) lsl 0) lor ((ord b) lsl 8) lor ((ord c) lsl 16) lor ((ord d) lsl 24)
+
+let unpack_2bytes a b =
+  unpack_components a b '\x00' '\x00'
+
 (* unpacks little-endian *)
 let unpack_le n s =
   let x = ref 0 in

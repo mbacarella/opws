@@ -16,21 +16,61 @@ type clear_header =
 
 type database_cursor =
   {
-    key: string;
+    ctx: Twofish.ctx;
     chan: in_channel;
     mutable chan_pos: int;
     mutable block: string option;
     mutable block_pos: int option;
+    cbc: Cbc.state;
   }
 
-let make_cursor key chan chan_pos =
+let make_cursor key chan chan_pos cbc =
   {
-    key = key;
+    ctx = Twofish.init key;
     chan = chan;
     chan_pos = chan_pos;
     block = None;
     block_pos = None;
+    cbc = cbc
   }
+
+let rec cursor_getchar cur =
+  match cur.block, cur.block_pos with
+    | None, None
+    | Some _, Some 16 ->
+        let bs = 16 in
+        let blk = String.create bs in
+        let dec = Twofish.decrypt cur.ctx in
+          begin
+            seek_in cur.chan cur.chan_pos;
+            assert ((input cur.chan blk 0 bs) = bs);
+            cur.chan_pos <- cur.chan_pos + bs;
+
+            cur.block <- Some (Cbc.decrypt cur.cbc dec blk);
+            cur.block_pos <- Some (0);
+            cursor_getchar cur (* try me again *)
+          end
+    | Some blk, Some pos ->
+        begin
+          cur.block_pos <- Some (pos + 1);
+          blk.[pos]
+        end
+    | _, _ -> failwith "read_byte: unexpected blk, pos"
+
+let cursor_getshort cur =
+  let a = cursor_getchar cur in
+  let b = cursor_getchar cur in
+    unpack_2bytes a b
+
+let cursor_gets cur = function
+  | 0 -> ""
+  | length ->
+      let b = Buffer.create length in
+      let rec loop = function
+        | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
+        | 0 -> Buffer.contents b
+      in
+        loop length
 
 type header =
   | Version of int
@@ -67,9 +107,9 @@ type record =
   | Password_expiry_interval of int
   | End_of_entry
 
-let header_of_code cur = function
-  | 0x00 -> Version
-  | 0x01 -> UUID
+let header_of_code cur length = function
+  | 0x00 -> Version (cursor_getshort cur)
+  | 0x01 -> UUID (cursor_gets cur 16)
   | 0x02 -> Non_default_preferences
   | 0x03 -> Tree_display_status
   | 0x04 -> Timestamp_of_last_save
@@ -82,8 +122,8 @@ let header_of_code cur = function
   | 0x0b -> Database_filters
   | 0xff -> End_of_headers
 
-let record_of_code cur = function
-  | 0x01 -> UUID
+let record_of_code cur length = function
+  | 0x01 -> UUID (cursor_gets cur 16)
   | 0x02 -> Group
   | 0x03 -> Title
   | 0x04 -> Username
@@ -149,28 +189,6 @@ let load_clrtxt_header chan =
   in
     clrtxt_header
 
-let cursor_read_byte cur =
-  match cur.block, cur.block_pos with
-    | None, None
-    | Some _, Some 16 ->
-        let bs = 16 in
-        let blk = String.create bs in
-          begin
-            seek_chan cur.chan cur.chan_pos;
-            input cur.chan blk 0 bs;
-            cur.chan_pos <- cur.chan_pos + bs;
-
-            cur.block <- Cbc.decrypt cur.cbc Twofish.decrypt cur.key blk;
-            cur.block_pos <- 0;
-            read_byte cur
-          end
-    | Some blk, Some pos ->
-        begin
-          cur.block_pos <- cur.block_pos + 1;
-          blk.[pos]
-        end
-    | _, _ -> failwith "read_byte: unexpected blk, pos"
-
 let buffer_of_string s =
   let b = Buffer.create (String.length s) in
     begin
@@ -181,7 +199,13 @@ let buffer_of_string s =
 let decrypt_database k l cur =
   let cbc = Cbc.init iv in
   let cur = make_cursor k ch chan cbc in
-  let read_field_hdr f = (* read 4-byte length folloed by one-byte type -- f (cursor_read_byte cur) *) cur in
+  let read_packet f =
+    let a = cursor_getchar cur in
+    let b = cursor_getchar cur in
+    let c = cursor_getchar cur in
+    let d = cursor_getchar cur in
+      f (unpack_components a b c d) (cursor_getchar cur)
+  in
   let rec collect_header accum = function
     | End_of_headers -> List.rev accum
     | header -> collect_header header::accum (read_packet header_of_code)
@@ -191,7 +215,7 @@ let decrypt_database k l cur =
     | record -> collect_record record::accum (read_packet record_of_code)
   in
   let hdrs = collect_header [] (read_packet header_of_code) in
-  let recs = collect_record [] (read_header record_of_code) in
+  let recs = collect_record [] (read_packet record_of_code) in
     (hdrs,recs)
 
 let make_keys ch p' =
@@ -228,5 +252,7 @@ let load_database fn passphrase =
 let () =
   let fn = "/home/mbacarella/.pwsafe.psafe3" in
     Printf.printf "Opening database at %s\n" fn;
-    load_database fn (Prompt.read_password ());
+    match Prompt.read_password () with
+      | Some passphrase -> load_database fn passphrase
+      | None -> ()
   ()

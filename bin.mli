@@ -1,4 +1,6 @@
 
+val unpack_components : char -> char -> char -> char -> int
+
 val unpack_le : int -> string -> int
 val unpack8_le  : string -> int
 val unpack16_le : string -> int
