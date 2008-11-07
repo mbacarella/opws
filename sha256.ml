@@ -48,6 +48,29 @@ let sum1 x = (xor_int32 (rotate x  6) (xor_int32 (rotate x 11) (rotate x 25)))
 let rh00 x = (xor_int32 (rotate x  7) (xor_int32 (rotate x 18) (shift  x  3)))
 let rh01 x = (xor_int32 (rotate x 17) (xor_int32 (rotate x 19) (shift  x 10)))
 let to_int32 x = (Int32.of_int (int_of_char x))
+
+(* packs big-endian *)
+let pack64 x =
+  let b = Buffer.create 8 in
+    for i = 0 to 7 do
+      let shft = (7-i)*8 in
+        Buffer.add_char b (char_of_int (Int64.to_int (Int64.logand (Int64.shift_right x shft) 0xFFL)));
+    done;
+    b
+
+let pack x n =
+  if (n mod 8) = 0 then
+    let n' = n/8 in
+    let b = Buffer.create n' in
+      for i = 0 to n'-1 do
+        let shft = ((n'-1)-i)*8 in
+          Buffer.add_char b (char_of_int (Int32.to_int (Int32.logand (Int32.shift_right x shft) 0xFFl)));
+      done;
+      b
+  else
+    raise (Invalid_argument ("pack: " ^ (string_of_int n) ^ " is not a multiple of 8"))
+
+let pack32 x = pack x 32
  
 let as_bytes bits =
   match (bits mod 8) with
@@ -151,7 +174,7 @@ let pack_sha256 ctx =
   let sha256 = Buffer.create (as_bytes 256) in
   let rec pack_sha256_inner = function 
     | 8 -> sha256
-    | i -> (Buffer.add_buffer sha256 (Bin.pack32 h.(i)); pack_sha256_inner (i+1))
+    | i -> (Buffer.add_buffer sha256 (pack32 h.(i)); pack_sha256_inner (i+1))
   in
     pack_sha256_inner 0
 
@@ -170,7 +193,7 @@ let final ctx message =
             for i = as_bytes pad_start to (as_bytes (message_length - (as_bytes 64)))-8 do
               Buffer.add_char message '\x00'
             done;
-            Buffer.add_buffer message (Bin.pack64 ctx.total_length);
+            Buffer.add_buffer message (pack64 ctx.total_length);
             let new_length = as_bits (Buffer.length message) in
               if new_length = 1024 then
                 begin
