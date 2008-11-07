@@ -1,5 +1,5 @@
-(* An implementation of Twofish in OCaml
-   Copyright (C) 2008  Michael Bacarella.
+(* An implementation of the Twofish block cipher in OCaml
+   Copyright (C) 2008 Michael Bacarella <mbac@panix.com>
 
    This program is free software; you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
