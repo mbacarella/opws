@@ -74,8 +74,8 @@ let cursor_gets cur = function
   | length ->
       let b = Buffer.create length in
       let rec loop = function
+	| 0 -> Buffer.contents b
         | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
-        | 0 -> Buffer.contents b
       in
         loop length
 
