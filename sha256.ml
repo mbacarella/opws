@@ -15,39 +15,26 @@
    along with this program; if not, write to the Free Software
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
-   The algorithm below has been implemented using Guido Flohr's
-   CPAN Crypt::Twofish_PP as a reference.  Any flaws in this program
-   are, however, my own fault.
-
    SHA256 as specified here:
    http://en.wikipedia.org/wiki/SHA256
 *)
+
+open Bin
+
+let rotate x n = (or32 (right32 x n) (left32 x (32 - n)))
+let shift x n = right32 x n
+let ch x y z = xor32 (and32 x y) (and32 (not32 x) z)
+let maj x y z = (xor32 (and32 x y) (xor32 (and32 x z) (and32 y z)))
+let sum0 x = (xor32 (rotate x  2) (xor32 (rotate x 13) (rotate x 22)))
+let sum1 x = (xor32 (rotate x  6) (xor32 (rotate x 11) (rotate x 25)))
+let rh00 x = (xor32 (rotate x  7) (xor32 (rotate x 18) (shift  x  3)))
+let rh01 x = (xor32 (rotate x 17) (xor32 (rotate x 19) (shift  x 10)))
 
 type ctx =
     {
       mutable total_length: Int64.t;
       mutable h: Int32.t array;
     }
-
-let add_int32 x y = Int32.add x y
-let add_int64 x y = Int64.add x y
-
-let left_int32 x n = Int32.shift_left x n
-let right_int32 x n = Int32.shift_right_logical x n
-let or_int32 x y = Int32.logor x y
-let xor_int32 x y = Int32.logxor x y
-let and_int32 x y = Int32.logand x y
-let not_int32 x = Int32.lognot x
-
-let rotate x n = (or_int32 (right_int32 x n) (left_int32 x (32 - n)))
-let shift x n = right_int32 x n
-let ch x y z = xor_int32 (and_int32 x y) (and_int32 (not_int32 x) z)
-let maj x y z = (xor_int32 (and_int32 x y) (xor_int32 (and_int32 x z) (and_int32 y z)))
-let sum0 x = (xor_int32 (rotate x  2) (xor_int32 (rotate x 13) (rotate x 22)))
-let sum1 x = (xor_int32 (rotate x  6) (xor_int32 (rotate x 11) (rotate x 25)))
-let rh00 x = (xor_int32 (rotate x  7) (xor_int32 (rotate x 18) (shift  x  3)))
-let rh01 x = (xor_int32 (rotate x 17) (xor_int32 (rotate x 19) (shift  x 10)))
-let to_int32 x = (Int32.of_int (int_of_char x))
 
 (* packs big-endian *)
 let pack64 x =
@@ -132,28 +119,28 @@ let update ctx message =
       let w = Array.make bs_in_bytes 0l in
         begin
           for t = 0 to 15 do
-            w.(t) <- (or_int32 (left_int32 (to_int32 (mm (t*4  ))) 24)
-                     (or_int32 (left_int32 (to_int32 (mm (t*4+1))) 16)
-                     (or_int32 (left_int32 (to_int32 (mm (t*4+2)))  8)
+            w.(t) <- (or32 (left32 (to_int32 (mm (t*4  ))) 24)
+                     (or32 (left32 (to_int32 (mm (t*4+1))) 16)
+                     (or32 (left32 (to_int32 (mm (t*4+2)))  8)
                                            (to_int32 (mm (t*4+3)))   )));
           done;
           for t = 16 to 63 do
-            w.(t) <- add_int32 (add_int32 (rh01 w.(t-2)) w.(t-7)) (add_int32 (rh00 w.(t-15)) w.(t-16))
+            w.(t) <- add32 (add32 (rh01 w.(t-2)) w.(t-7)) (add32 (rh00 w.(t-15)) w.(t-16))
           done;
 
           let rec hround (a,b,c,d,e,f,g,h) = function
             | 64 -> [|
-                add_int32 sha.(0) a; add_int32 sha.(1) b;
-                add_int32 sha.(2) c; add_int32 sha.(3) d;
-                add_int32 sha.(4) e; add_int32 sha.(5) f;
-                add_int32 sha.(6) g; add_int32 sha.(7) h |]
+                add32 sha.(0) a; add32 sha.(1) b;
+                add32 sha.(2) c; add32 sha.(3) d;
+                add32 sha.(4) e; add32 sha.(5) f;
+                add32 sha.(6) g; add32 sha.(7) h |]
             | t -> 
-                let t0 = add_int32 (add_int32 h (sum1 e)) (add_int32 (ch e f g) (add_int32 k.(t) w.(t))) in
-                let t1 = add_int32 (sum0 a) (maj a b c) in
-                  hround ((add_int32 t0 t1), a, b, c, (add_int32 d t0), e, f, g) (t+1)
+                let t0 = add32 (add32 h (sum1 e)) (add32 (ch e f g) (add32 k.(t) w.(t))) in
+                let t1 = add32 (sum0 a) (maj a b c) in
+                  hround ((add32 t0 t1), a, b, c, (add32 d t0), e, f, g) (t+1)
           in
             ctx.h <- hround (sha.(0), sha.(1), sha.(2), sha.(3), sha.(4), sha.(5), sha.(6), sha.(7)) 0;
-            ctx.total_length <- (add_int64 ctx.total_length (Int64.of_int message_bits));
+            ctx.total_length <- (add64 ctx.total_length (Int64.of_int message_bits));
         end
 
 let sub_buf b pos len =
@@ -185,7 +172,7 @@ let final ctx message =
                   ^"  got "^ (string_of_int original_length)^" bits")
     else
       let pad_blocks = if (original_length mod bs_in_bits) < 448 then 1 else 2 in
-        ctx.total_length <- (add_int64 ctx.total_length (Int64.of_int original_length));
+        ctx.total_length <- (add64 ctx.total_length (Int64.of_int original_length));
         Buffer.add_char message '\x80';
         let pad_start = as_bits (Buffer.length message) in
         let message_length = ((original_length / bs_in_bits) + pad_blocks) * bs_in_bits in

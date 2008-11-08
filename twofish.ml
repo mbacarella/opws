@@ -20,30 +20,7 @@
    are, however, my own fault.
 *)
 
-let and32 x n = Int32.logand x n
-let xor32 x y = Int32.logxor x y
-let or32 x y = Int32.logor x y
-let right32 x n = Int32.shift_right_logical x n
-let left32 x n = Int32.shift_left x n
-let ror32 x n = or32 (right32 x n)  (left32 x (32-n))
-let rol32 x n = or32  (left32 x n) (right32 x (32-n))
-let add32 x y = Int32.add x y
-
-let and64 x n = Int64.logand x n
-let xor64 x y = Int64.logxor x y
-let or64 x y = Int64.logor x y
-let right64 x n = Int64.shift_right_logical x n
-let left64 x n = Int64.shift_left x n
-let ror64 x n = or64 (right64 x n)  (left64 x (64-n))
-let rol64 x n = or64  (left64 x n) (right64 x (64-n))
-let add64 x y = Int64.add x y
-let int64eq x y = (Int64.compare x y) = 0
-let int64true x = (int64eq x 0L) = false
-
-let xor4_32 a b c d = (xor32 a (xor32 b (xor32 c d)))
-
-let ord x = int_of_char x
-let ord32 x = Int32.of_int (ord x)
+open Bin
 
 type ctx = {
     k : Int32.t array;

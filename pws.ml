@@ -60,7 +60,14 @@ let rec cursor_getchar cur =
 let cursor_getshort cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
-    unpack_2bytes a b
+    Bin.unpack16_le (Printf.sprintf "%c%c" a b)
+
+let cursor_gettime cur =
+  let a = cursor_getchar cur in
+  let b = cursor_getchar cur in
+  let c = cursor_getchar cur in
+  let d = cursor_getchar cur in
+    Bin.unpack32 (Printf.sprintf "%c%c%c%c" a b c d)
 
 let cursor_gets cur = function
   | 0 -> ""
@@ -74,7 +81,7 @@ let cursor_gets cur = function
 
 type header =
   | Version of int
-  | UUID of string
+  | Header_UUID of string
   | Non_default_preferences of string
   | Tree_display_status of string
   | Timestamp_of_last_save of int
@@ -88,7 +95,7 @@ type header =
   | End_of_header
 
 type record =
-  | UUID of string
+  | Record_UUID of string
   | Group of string
   | Title of string
   | Username of string
@@ -108,39 +115,39 @@ type record =
   | End_of_entry
 
 let header_of_code cur length = function
-  | 0x00 -> Version (cursor_getshort cur)
-  | 0x01 -> UUID (cursor_gets cur 16)
-  | 0x02 -> Non_default_preferences
-  | 0x03 -> Tree_display_status
-  | 0x04 -> Timestamp_of_last_save
-  | 0x05 -> Who_performed_last_save
-  | 0x06 -> What_performed_last_save
-  | 0x07 -> Last_saved_by_user
-  | 0x08 -> Last_saved_on_host
-  | 0x09 -> Database_name
-  | 0x0a -> Database_description
-  | 0x0b -> Database_filters
+  | 0x00 -> (assert (length = 2); Version (cursor_getshort cur))
+  | 0x01 -> (assert (length = 16); Header_UUID (cursor_gets cur 16))
+  | 0x02 -> Non_default_preferences (cursor_gets cur length)
+  | 0x03 -> Tree_display_status (cursor_gets cur length)
+  | 0x04 -> (assert (length = 4); Timestamp_of_last_save (cursor_gettime cur))
+  | 0x05 -> Who_performed_last_save (cursor_gets cur length)
+  | 0x06 -> What_performed_last_save (cursor_gets cur length)
+  | 0x07 -> Last_saved_by_user (cursor_gets cur length)
+  | 0x08 -> Last_saved_on_host (cursor_gets cur length)
+  | 0x09 -> Database_name (cursor_gets cur length)
+  | 0x0a -> Database_description (cursor_gets cur length)
+  | 0x0b -> Database_filters (cursor_gets cur length)
   | 0xff -> End_of_headers
 
 let record_of_code cur length = function
-  | 0x01 -> UUID (cursor_gets cur 16)
-  | 0x02 -> Group
-  | 0x03 -> Title
-  | 0x04 -> Username
-  | 0x05 -> Notes
-  | 0x06 -> Password
-  | 0x07 -> Creation_time
-  | 0x08 -> Password_modification_time
-  | 0x09 -> Last_access_time
-  | 0x0a -> Password_expiry_time
-  | 0x0b -> Reserved
-  | 0x0c -> Last_modification_time
-  | 0x0d -> URL
-  | 0x0e -> Autotype
-  | 0x0f -> Password_history
-  | 0x10 -> Password_policy
-  | 0x11 -> Password_expiry_interval
-  | 0xFF -> End_of_records
+  | 0x01 -> (assert (length = 16); Record_UUID (cursor_gets cur 16))
+  | 0x02 -> Group (cursor_gets cur length)
+  | 0x03 -> Title (cursor_gets cur length)
+  | 0x04 -> Username (cursor_gets cur length)
+  | 0x05 -> Notes (cursor_gets cur length)
+  | 0x06 -> Password (cursor_gets cur length)
+  | 0x07 -> (assert (length = 4); Creation_time (cursor_gettime cur))
+  | 0x08 -> (assert (length = 4); Password_modification_time (cursor_gettime cur))
+  | 0x09 -> (assert (length = 4); Last_access_time (cursor_gettime cur))
+  | 0x0a -> (assert (length = 4); Password_expiry_time (cursor_gettime cur))
+  | 0x0b -> (assert (length = 4); Reserved (cursor_gets cur 4))
+  | 0x0c -> (assert (length = 4); Last_modification_time (cursor_gettime cur))
+  | 0x0d -> URL (cursor_gets cur length)
+  | 0x0e -> Autotype (cursor_gets cur length)
+  | 0x0f -> Password_history (cursor_gets cur length)
+  | 0x10 -> Password_policy (cursor_gets cur length)
+  | 0x11 -> (assert (length = 2); Password_expiry_interval (cursor_getshort cur))
+  | 0xFF -> End_of_entry
 
 (* KEYSTRETCH/hash implementation as specified here http://www.cs.berkeley.edu/~daw/papers/keystretch.ps *)
 let keystretch kshort salt iters =
@@ -204,7 +211,7 @@ let decrypt_database k l cur =
     let b = cursor_getchar cur in
     let c = cursor_getchar cur in
     let d = cursor_getchar cur in
-      f (unpack_components a b c d) (cursor_getchar cur)
+      f (Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)) (cursor_getchar cur)
   in
   let rec collect_header accum = function
     | End_of_headers -> List.rev accum

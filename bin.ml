@@ -1,11 +1,32 @@
 
-let ord = int_of_char
+let chr x = char_of_int x
+let ord c = int_of_char c
+let ord32 c = Int32.of_int (ord c)
 
-let unpack_components a b c d =
-  ((ord a) lsl 0) lor ((ord b) lsl 8) lor ((ord c) lsl 16) lor ((ord d) lsl 24)
+let and32 x n = Int32.logand x n
+let xor32 x y = Int32.logxor x y
+let or32 x y = Int32.logor x y
+let right32 x n = Int32.shift_right_logical x n
+let left32 x n = Int32.shift_left x n
+let ror32 x n = or32 (right32 x n)  (left32 x (32-n))
+let rol32 x n = or32  (left32 x n) (right32 x (32-n))
+let add32 x y = Int32.add x y
+let not32 x = Int32.lognot x
 
-let unpack_2bytes a b =
-  unpack_components a b '\x00' '\x00'
+let add64 x y = Int64.add x y
+let and64 x n = Int64.logand x n
+let xor64 x y = Int64.logxor x y
+let or64 x y = Int64.logor x y
+let right64 x n = Int64.shift_right_logical x n
+let left64 x n = Int64.shift_left x n
+let ror64 x n = or64 (right64 x n)  (left64 x (64-n))
+let rol64 x n = or64  (left64 x n) (right64 x (64-n))
+
+let int64eq x y = (Int64.compare x y) = 0
+let int64true x = (int64eq x 0L) = false
+
+let to_int32 x = (Int32.of_int (int_of_char x))
+let xor4_32 a b c d = (xor32 a (xor32 b (xor32 c d)))
 
 (* unpacks little-endian *)
 let unpack_le n s =
@@ -20,6 +41,9 @@ let unpack8_le = unpack_le 8
 let unpack16_le = unpack_le 16
 let unpack24_le = unpack_le 24
 let unpack32_le = unpack_le 32
+
+let unpack32_be_int32 a b c d =
+  or32 (left32 d 24) (or32 (left32 c 16) (or32 (left32 b 8) a))
 
 (* packs big-endian *)
 let pack64 x = 
