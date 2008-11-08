@@ -42,9 +42,6 @@ let unpack16_le = unpack_le 16
 let unpack24_le = unpack_le 24
 let unpack32_le = unpack_le 32
 
-let unpack32_be_int32 a b c d =
-  or32 (left32 d 24) (or32 (left32 c 16) (or32 (left32 b 8) a))
-
 (* packs big-endian *)
 let pack64 x = 
   let b = Buffer.create 8 in 

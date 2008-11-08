@@ -67,7 +67,7 @@ let cursor_gettime cur =
   let b = cursor_getchar cur in
   let c = cursor_getchar cur in
   let d = cursor_getchar cur in
-    Bin.unpack32 (Printf.sprintf "%c%c%c%c" a b c d)
+	Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)
 
 let cursor_gets cur = function
   | 0 -> ""
@@ -85,10 +85,10 @@ type header =
   | Non_default_preferences of string
   | Tree_display_status of string
   | Timestamp_of_last_save of int
-  | Who_performed_last_save of int
-  | What_performed_last_save of int
-  | Last_saved_by_user of int
-  | Last_saved_on_host of int
+  | Who_performed_last_save of string
+  | What_performed_last_save of string
+  | Last_saved_by_user of string
+  | Last_saved_on_host of string
   | Database_name of string
   | Database_description of string
   | Database_filters of string
@@ -127,7 +127,8 @@ let header_of_code cur length = function
   | 0x09 -> Database_name (cursor_gets cur length)
   | 0x0a -> Database_description (cursor_gets cur length)
   | 0x0b -> Database_filters (cursor_gets cur length)
-  | 0xff -> End_of_headers
+  | 0xff -> End_of_header
+  | code -> (failwith ("record_of_code: unknown code: "^(string_of_int code)))
 
 let record_of_code cur length = function
   | 0x01 -> (assert (length = 16); Record_UUID (cursor_gets cur 16))
@@ -148,6 +149,7 @@ let record_of_code cur length = function
   | 0x10 -> Password_policy (cursor_gets cur length)
   | 0x11 -> (assert (length = 2); Password_expiry_interval (cursor_getshort cur))
   | 0xFF -> End_of_entry
+  | code -> (failwith ("record_of_code: unknown code: "^(string_of_int code)))
 
 (* KEYSTRETCH/hash implementation as specified here http://www.cs.berkeley.edu/~daw/papers/keystretch.ps *)
 let keystretch kshort salt iters =
