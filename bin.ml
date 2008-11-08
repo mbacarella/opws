@@ -47,7 +47,7 @@ let pack64 x =
   let b = Buffer.create 8 in 
     for i = 0 to 7 do
       let shft = (7-i)*8 in
-        Buffer.add_char b (char_of_int (Int64.to_int (Int64.logand (Int64.shift_right x shft) 0xFFL)));
+        Buffer.add_char b (chr (Int64.to_int (and64 (Int64.shift_right x shft) 0xFFL)));
     done;
     b
 
@@ -57,7 +57,7 @@ let pack x n =
     let b = Buffer.create n' in 
       for i = 0 to n'-1 do
         let shft = ((n'-1)-i)*8 in
-          Buffer.add_char b (char_of_int (Int32.to_int (Int32.logand (Int32.shift_right x shft) 0xFFl)));
+          Buffer.add_char b (chr (Int32.to_int (and32 (right32 x shft) 0xFFl)));
       done;
       b
   else

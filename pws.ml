@@ -1,5 +1,5 @@
 
-(* see formatv3.txt for an explanation *)
+(* see formatv3.txt for some answers *)
 
 type clear_header =
   {
