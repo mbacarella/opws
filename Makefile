@@ -9,7 +9,7 @@ owps: clean
 	$(OCC) -c prompt.mli prompt.ml
 	$(OCC) -c cbc.mli cbc.ml
 	$(OCC) -c twofish.ml pws.ml
-	$(OCC) -o opws $(UNIX) prompt.$(EXT) bin.$(EXT) sha256.$(EXT) pws.$(EXT)
+	$(OCC) -o opws $(UNIX) bin.$(EXT) twofish.$(EXT) cbc.$(EXT) prompt.$(EXT) sha256.$(EXT) pws.$(EXT)
 
 clean:
 	rm -f *.cmx *.cmo *.cmi opws

@@ -205,23 +205,24 @@ let buffer_of_string s =
       b
     end
       
-let decrypt_database k l cur =
-  let cbc = Cbc.init iv in
-  let cur = make_cursor k ch chan cbc in
+let decrypt_database k l ch chan =
+  let cbc = Cbc.init ch.iv in
+  let cur = make_cursor k chan 152 cbc in
   let read_packet f =
     let a = cursor_getchar cur in
     let b = cursor_getchar cur in
     let c = cursor_getchar cur in
     let d = cursor_getchar cur in
-      f (Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)) (cursor_getchar cur)
+    let x = (Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)) in
+      f cur x (int_of_char (cursor_getchar cur))
   in
   let rec collect_header accum = function
-    | End_of_headers -> List.rev accum
-    | header -> collect_header header::accum (read_packet header_of_code)
+    | End_of_header -> List.rev accum
+    | header -> collect_header (header::accum) (read_packet header_of_code)
   in
   let rec collect_record accum = function
-    | End_of_record -> List.rev accum
-    | record -> collect_record record::accum (read_packet record_of_code)
+    | End_of_entry -> List.rev accum
+    | record -> collect_record (record::accum) (read_packet record_of_code)
   in
   let hdrs = collect_header [] (read_packet header_of_code) in
   let recs = collect_record [] (read_packet record_of_code) in
@@ -242,12 +243,12 @@ let load_database fn passphrase =
     let p' = keystretch (buffer_of_string passphrase) (buffer_of_string ch.salt) ch.iter in       
     let hofp' = Sha256.digest p' in (* hash yet another time... *)
       if (buffer_of_string ch.hofp) = hofp' then
-        let (k, l, iv) = make_keys ch p' in
-        let (ch, hdrs,recs) = decrypt_database k l iv ch chan in
+        let (k, l, iv) = make_keys ch (Buffer.contents p') in
+        let hdrs,recs = decrypt_database k l ch chan in
           begin
             close_in chan;
-            (ch, hdrs, recs)
-              end
+            hdrs, recs
+          end
       else
         begin
           Printf.printf "Passphrase incorrect.\n";
@@ -261,7 +262,12 @@ let load_database fn passphrase =
 let () =
   let fn = "/home/mbacarella/.pwsafe.psafe3" in
     Printf.printf "Opening database at %s\n" fn;
-    match Prompt.read_password () with
-      | Some passphrase -> load_database fn passphrase
-      | None -> ()
-  ()
+    let hdrs, recs =
+      match Prompt.read_password "Enter safe combination: " with
+	| Some passphrase -> load_database fn passphrase
+	| None -> [], []
+    in
+      if (hdrs = []) || (recs = []) then
+	Printf.printf "empty database!\n"
+      else
+	Printf.printf "headers: %d, records: %d\n" (List.length hdrs) (List.length recs)
