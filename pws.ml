@@ -257,10 +257,28 @@ let load_database fn passphrase =
         end
   with
     | Sys_error fn -> failwith ("load_database: error accessing " ^ fn)
-    | End_of_file -> failwith ("load_database: "^fn^": corrupted database (EOF reached unexpectedly)")
+    | End_of_file -> failwith ("load_database: "
+		^fn^": corrupted database (EOF reached unexpectedly)")
+
+let parse_args () =
+  let usage_msg = "Usage: pwsafe [OPTIONS]" in
+  let usage () =
+    Printf.printf "%s\n" usage_msg;
+    exit 1
+  in
+  let anonargs = ref [] in
+  let safe = ref "~/.pwsafe.psafe3" in
+  let speclist = [
+    ("-s", Arg.Set_string safe, "path Path to password safe file")
+  ]
+  in
+    Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
+    match !anonargs with
+      | [] -> !safe
+      | _ -> usage ()
 
 let () =
-  let fn = "/home/mbacarella/.pwsafe.psafe3" in
+  let fn = parse_args () in
     Printf.printf "Opening database at %s\n" fn;
     let hdrs, recs =
       match Prompt.read_password "Enter safe combination: " with

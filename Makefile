@@ -1,6 +1,6 @@
 OCC = ocamlopt
 EXT = cmx
-UNIX = unix.$(EXT)
+UNIX = unix.cmxa
 
 owps: clean
 	$(OCC) -c bin.mli bin.ml
