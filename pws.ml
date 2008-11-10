@@ -151,7 +151,11 @@ let record_of_code cur length = function
   | 0xFF -> End_of_entry
   | code -> (failwith ("record_of_code: unknown code: "^(string_of_int code)))
 
-(* KEYSTRETCH/hash implementation as specified here http://www.cs.berkeley.edu/~daw/papers/keystretch.ps *)
+(*
+ KEYSTRETCH/hash implementation as specified here:
+   http://www.cs.berkeley.edu/~daw/papers/keystretch.ps
+*)
+
 let keystretch kshort salt iters =
   let digest = Sha256.digest in
   let rec ks_inner i sha =
@@ -181,7 +185,8 @@ let load_clrtxt_header chan =
             let b = read_blob chan (bits / 8) in
               b
           end
-      | (_,_) -> raise (Invalid_argument "in_bits: off and bits must be multiples of 8")
+      | (_,_) -> raise (Invalid_argument
+			  "in_bits: off and bits must be multiples of 8")
   in                 
   let clrtxt_header = 
     {
@@ -229,7 +234,10 @@ let decrypt_database k l ch chan =
     (hdrs,recs)
 
 let make_keys ch p' =
-  let join ctx a b = String.concat "" [Twofish.decrypt ctx a; Twofish.decrypt ctx b] in
+  let join ctx a b =
+    let a' = Twofish.decrypt ctx a in
+    let b' = Twofish.decrypt ctx b in
+      String.concat "" [a'; b'] in
   let joinkeys = join (Twofish.init p') in
   let k = joinkeys ch.b1 ch.b2 in
   let l = joinkeys ch.b3 ch.b4 in
@@ -240,8 +248,10 @@ let load_database fn passphrase =
   let chan = open_in_gen [Open_binary] 0 fn in
   try
     let ch = load_clrtxt_header chan in
-    let p' = keystretch (buffer_of_string passphrase) (buffer_of_string ch.salt) ch.iter in       
-    let hofp' = Sha256.digest p' in (* hash yet another time... *)
+    let b_passphrase = buffer_of_string passphrase in
+    let b_salt = buffer_of_string ch.salt in 
+    let p' = keystretch b_passphrase b_salt ch.iter in       
+    let hofp' = Sha256.digest p' in
       if (buffer_of_string ch.hofp) = hofp' then
         let (k, l, iv) = make_keys ch (Buffer.contents p') in
         let hdrs,recs = decrypt_database k l ch chan in
@@ -288,4 +298,5 @@ let () =
       if (hdrs = []) || (recs = []) then
 	Printf.printf "empty database!\n"
       else
-	Printf.printf "headers: %d, records: %d\n" (List.length hdrs) (List.length recs)
+	Printf.printf "headers: %d, records: %d\n"
+	  (List.length hdrs) (List.length recs)
