@@ -48,6 +48,7 @@ let rec cursor_getchar cur =
 
             cur.block <- Some (Cbc.decrypt cur.cbc dec blk);
             cur.block_pos <- Some (0);
+
             cursor_getchar cur (* try me again *)
           end
     | Some blk, Some pos ->
@@ -74,7 +75,7 @@ let cursor_gets cur = function
   | length ->
       let b = Buffer.create length in
       let rec loop = function
-	| 0 -> Buffer.contents b
+	| 0 -> (Printf.printf "gets: %s\n" (Buffer.contents b); Buffer.contents b)
         | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
       in
         loop length
@@ -128,7 +129,7 @@ let header_of_code cur length = function
   | 0x0a -> Database_description (cursor_gets cur length)
   | 0x0b -> Database_filters (cursor_gets cur length)
   | 0xff -> End_of_header
-  | code -> (failwith ("record_of_code: unknown code: "^(string_of_int code)))
+  | code -> (failwith ("header_of_code: unknown code: "^(string_of_int code)))
 
 let record_of_code cur length = function
   | 0x01 -> (assert (length = 16); Record_UUID (cursor_gets cur 16))
@@ -219,7 +220,11 @@ let decrypt_database k l ch chan =
     let c = cursor_getchar cur in
     let d = cursor_getchar cur in
     let x = (Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)) in
-      f cur x (int_of_char (cursor_getchar cur))
+    let code = int_of_char (cursor_getchar cur) in
+      begin
+        Printf.printf "length: %d, code: %d\n" x code;
+        f cur x code
+      end
   in
   let rec collect_header accum = function
     | End_of_header -> List.rev accum
@@ -277,7 +282,7 @@ let parse_args () =
     exit 1
   in
   let anonargs = ref [] in
-  let safe = ref "~/.pwsafe.psafe3" in
+  let safe = ref "/home/mbacarella/.pwsafe.psafe3" in
   let speclist = [
     ("-s", Arg.Set_string safe, "path Path to password safe file")
   ]
