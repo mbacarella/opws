@@ -30,8 +30,6 @@ type database_cursor =
 exception End_of_database
 
 let cursor_nextblock cur =
-  printf "starting new block: %d\n" cur.chan_pos;
-
   let blocksize = 16 in
 
   (* find start of next block *)
@@ -42,8 +40,7 @@ let cursor_nextblock cur =
 
   let block = String.create blocksize in
   let dec = Twofish.decrypt cur.ctx in
-  let result =  input cur.chan block 0 blocksize in
-  assert (result = blocksize), (sprintf "%d not equal %d" result blocksize);
+  really_input cur.chan block 0 blocksize;
   if block = "PWS3-EOFPWS3-EOF" then
     raise End_of_database
   else
@@ -84,7 +81,7 @@ let cursor_gets cur = function
   | length ->
       let b = Buffer.create length in
       let rec loop = function
-	    | 0 -> (printf "gets: %s\n" (Buffer.contents b); Buffer.contents b)
+	    | 0 -> Buffer.contents b
         | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
       in
       loop length
