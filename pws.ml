@@ -1,4 +1,6 @@
 
+open Printf
+
 (* see formatv3.txt for some answers *)
 
 type clear_header =
@@ -18,39 +20,46 @@ type database_cursor =
   {
     ctx: Twofish.ctx;
     chan: in_channel;
+    chan_start: int;
     mutable chan_pos: int;
     mutable block: string option;
     mutable block_pos: int option;
     cbc: Cbc.state;
   }
 
-let make_cursor key chan chan_pos cbc =
-  {
-    ctx = Twofish.init key;
-    chan = chan;
-    chan_pos = chan_pos;
-    block = None;
-    block_pos = None;
-    cbc = cbc
-  }
+exception End_of_database
+
+let cursor_nextblock cur =
+  printf "starting new block: %d\n" cur.chan_pos;
+
+  let blocksize = 16 in
+
+  (* find start of next block *)
+  assert ((cur.chan_pos mod blocksize) = 0);
+
+  (* read the block *)
+  seek_in cur.chan (cur.chan_start + cur.chan_pos);  
+
+  let block = String.create blocksize in
+  let dec = Twofish.decrypt cur.ctx in
+  let result =  input cur.chan block 0 blocksize in
+  assert (result = blocksize), (sprintf "%d not equal %d" result blocksize);
+  if block = "PWS3-EOFPWS3-EOF" then
+    raise End_of_database
+  else
+    begin
+      cur.block <- Some (Cbc.decrypt cur.cbc dec block);
+      cur.block_pos <- Some 0;
+        (* get in position for the next call *)
+      cur.chan_pos <- cur.chan_pos + blocksize;
+    end
 
 let rec cursor_getchar cur =
   match cur.block, cur.block_pos with
     | None, None
     | Some _, Some 16 ->
-        let bs = 16 in
-        let blk = String.create bs in
-        let dec = Twofish.decrypt cur.ctx in
-          begin
-            seek_in cur.chan cur.chan_pos;
-            assert ((input cur.chan blk 0 bs) = bs);
-            cur.chan_pos <- cur.chan_pos + bs;
-
-            cur.block <- Some (Cbc.decrypt cur.cbc dec blk);
-            cur.block_pos <- Some (0);
-
-            cursor_getchar cur (* try me again *)
-          end
+        cursor_nextblock cur;
+        cursor_getchar cur
     | Some blk, Some pos ->
         begin
           cur.block_pos <- Some (pos + 1);
@@ -61,24 +70,24 @@ let rec cursor_getchar cur =
 let cursor_getshort cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
-    Bin.unpack16_le (Printf.sprintf "%c%c" a b)
+  Bin.unpack16_le (sprintf "%c%c" a b)
 
 let cursor_gettime cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
   let c = cursor_getchar cur in
   let d = cursor_getchar cur in
-	Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)
+  Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)
 
 let cursor_gets cur = function
   | 0 -> ""
   | length ->
       let b = Buffer.create length in
       let rec loop = function
-	| 0 -> (Printf.printf "gets: %s\n" (Buffer.contents b); Buffer.contents b)
+	    | 0 -> (printf "gets: %s\n" (Buffer.contents b); Buffer.contents b)
         | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
       in
-        loop length
+      loop length
 
 type header =
   | Version of int
@@ -120,7 +129,7 @@ let header_of_code cur length = function
   | 0x01 -> (assert (length = 16); Header_UUID (cursor_gets cur 16))
   | 0x02 -> Non_default_preferences (cursor_gets cur length)
   | 0x03 -> Tree_display_status (cursor_gets cur length)
-  | 0x04 -> (assert (length = 4); Timestamp_of_last_save (cursor_gettime cur))
+  | 0x04 -> (assert (length = 8); Timestamp_of_last_save (cursor_gettime cur))
   | 0x05 -> Who_performed_last_save (cursor_gets cur length)
   | 0x06 -> What_performed_last_save (cursor_gets cur length)
   | 0x07 -> Last_saved_by_user (cursor_gets cur length)
@@ -131,7 +140,7 @@ let header_of_code cur length = function
   | 0xff -> End_of_header
   | code -> (failwith ("header_of_code: unknown code: "^(string_of_int code)))
 
-let record_of_code cur length = function
+let entry_of_code cur length = function
   | 0x01 -> (assert (length = 16); Record_UUID (cursor_gets cur 16))
   | 0x02 -> Group (cursor_gets cur length)
   | 0x03 -> Title (cursor_gets cur length)
@@ -150,7 +159,8 @@ let record_of_code cur length = function
   | 0x10 -> Password_policy (cursor_gets cur length)
   | 0x11 -> (assert (length = 2); Password_expiry_interval (cursor_getshort cur))
   | 0xFF -> End_of_entry
-  | code -> (failwith ("record_of_code: unknown code: "^(string_of_int code)))
+  | code -> (failwith ("entry_of_code: unknown code: "^(string_of_int code)))
+
 
 (*
  KEYSTRETCH/hash implementation as specified here:
@@ -166,28 +176,28 @@ let keystretch kshort salt iters =
       ks_inner (i+1) (digest sha)
   in
   let m = Buffer.create 32 in
-    Buffer.add_buffer m kshort;
-    Buffer.add_buffer m salt;
-    ks_inner 0 (digest m)
+  Buffer.add_buffer m kshort;
+  Buffer.add_buffer m salt;
+  ks_inner 0 (digest m)
 
 let read_blob chan n =
   let rec read_chars b = function
     | 0 -> b
     | i -> (Buffer.add_char b (input_char chan); read_chars b (i-1))
   in
-    Buffer.contents (read_chars (Buffer.create n) n)
+  Buffer.contents (read_chars (Buffer.create n) n)
     
 let load_clrtxt_header chan =
   let in_bits off bits =
     match (off mod 8,bits mod 8) with
-      | (0,0) ->
-          begin
-            seek_in chan (off / 8);
-            let b = read_blob chan (bits / 8) in
-              b
-          end
-      | (_,_) -> raise (Invalid_argument
-			  "in_bits: off and bits must be multiples of 8")
+    | (0,0) ->
+        begin
+          seek_in chan (off / 8);
+          let b = read_blob chan (bits / 8) in
+          b
+        end
+    | (_,_) -> raise (Invalid_argument
+			            "in_bits: off and bits must be multiples of 8")
   in                 
   let clrtxt_header = 
     {
@@ -202,52 +212,77 @@ let load_clrtxt_header chan =
       iv = in_bits 1088 128;
     }
   in
-    clrtxt_header
+  clrtxt_header
 
 let buffer_of_string s =
   let b = Buffer.create (String.length s) in
-    begin
-      Buffer.add_string b s;
-      b
-    end
+  begin
+    Buffer.add_string b s;
+    b
+  end
       
 let decrypt_database k l ch chan =
   let cbc = Cbc.init ch.iv in
-  let cur = make_cursor k chan 152 cbc in
-  let read_packet f =
+  let cur =
+    {
+      ctx = Twofish.init k;
+      chan = chan;
+      chan_start = 152;
+      chan_pos = 0;
+      block = None;
+      block_pos = None;
+      cbc = cbc
+    }
+  in
+  let read_field f cur =
+    cursor_nextblock cur;
     let a = cursor_getchar cur in
     let b = cursor_getchar cur in
     let c = cursor_getchar cur in
     let d = cursor_getchar cur in
-    let x = (Bin.unpack32_le (Printf.sprintf "%c%c%c%c" a b c d)) in
+    let x = (Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)) in
     let code = int_of_char (cursor_getchar cur) in
-      begin
-        Printf.printf "length: %d, code: %d\n" x code;
-        f cur x code
-      end
+    begin
+      printf "length: %d, code: %d\n" x code;
+      f cur x code
+    end
   in
-  let rec collect_header accum = function
+  let next_header_field = read_field header_of_code in
+  let next_entry_field = read_field entry_of_code in
+
+  let rec collect_headers cur accum = function
     | End_of_header -> List.rev accum
-    | header -> collect_header (header::accum) (read_packet header_of_code)
+    | header ->
+        collect_headers cur (header::accum) (next_header_field cur)
   in
-  let rec collect_record accum = function
+  let rec collect_entries cur accum = function
     | End_of_entry -> List.rev accum
-    | record -> collect_record (record::accum) (read_packet record_of_code)
+    | record ->
+        collect_entries cur (record::accum) (next_entry_field cur)
   in
-  let hdrs = collect_header [] (read_packet header_of_code) in
-  let recs = collect_record [] (read_packet record_of_code) in
-    (hdrs,recs)
+  let rec collect_database cur accum =
+    let entries = 
+      try
+        collect_entries cur [] (next_entry_field cur)
+      with
+      | End_of_database -> List.rev accum
+    in
+    collect_database cur (entries @ accum)
+  in
+  let headers = collect_headers cur [] (next_header_field cur) in
+  let database = collect_database cur [] in
+  headers, database
 
 let make_keys ch p' =
   let join ctx a b =
     let a' = Twofish.decrypt ctx a in
     let b' = Twofish.decrypt ctx b in
-      String.concat "" [a'; b'] in
+    String.concat "" [a'; b'] in
   let joinkeys = join (Twofish.init p') in
   let k = joinkeys ch.b1 ch.b2 in
   let l = joinkeys ch.b3 ch.b4 in
   let iv = ch.iv in
-    (k, l, iv)
+  (k, l, iv)
 
 let load_database fn passphrase =
   let chan = open_in_gen [Open_binary] 0 fn in
@@ -257,28 +292,28 @@ let load_database fn passphrase =
     let b_salt = buffer_of_string ch.salt in 
     let p' = keystretch b_passphrase b_salt ch.iter in       
     let hofp' = Sha256.digest p' in
-      if (buffer_of_string ch.hofp) = hofp' then
-        let (k, l, iv) = make_keys ch (Buffer.contents p') in
-        let hdrs,recs = decrypt_database k l ch chan in
-          begin
-            close_in chan;
-            hdrs, recs
-          end
-      else
-        begin
-          Printf.printf "Passphrase incorrect.\n";
-          close_in chan;
-          exit 1
-        end
+    if (buffer_of_string ch.hofp) = hofp' then
+      let (k, l, iv) = make_keys ch (Buffer.contents p') in
+      let hdrs,recs = decrypt_database k l ch chan in
+      begin
+        close_in chan;
+        hdrs, recs
+      end
+    else
+      begin
+        printf "Passphrase incorrect.\n";
+        close_in chan;
+        exit 1
+      end
   with
-    | Sys_error fn -> failwith ("load_database: error accessing " ^ fn)
-    | End_of_file -> failwith ("load_database: "
-		^fn^": corrupted database (EOF reached unexpectedly)")
-
+  | Sys_error fn -> failwith ("load_database: error accessing " ^ fn)
+  | End_of_file -> failwith ("load_database: "
+		                     ^fn^": corrupted database (EOF reached unexpectedly)")
+      
 let parse_args () =
   let usage_msg = "Usage: pwsafe [OPTIONS]" in
   let usage () =
-    Printf.printf "%s\n" usage_msg;
+    printf "%s\n" usage_msg;
     exit 1
   in
   let anonargs = ref [] in
@@ -287,21 +322,21 @@ let parse_args () =
     ("-s", Arg.Set_string safe, "path Path to password safe file")
   ]
   in
-    Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
+  Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
     match !anonargs with
-      | [] -> !safe
-      | _ -> usage ()
-
+    | [] -> !safe
+    | _ -> usage ()
+        
 let () =
   let fn = parse_args () in
-    Printf.printf "Opening database at %s\n" fn;
-    let hdrs, recs =
-      match Prompt.read_password "Enter safe combination: " with
+  printf "Opening database at %s\n" fn;
+  let hdrs, recs =
+    match Prompt.read_password "Enter safe combination: " with
 	| Some passphrase -> load_database fn passphrase
 	| None -> [], []
-    in
-      if (hdrs = []) || (recs = []) then
-	Printf.printf "empty database!\n"
-      else
-	Printf.printf "headers: %d, records: %d\n"
+  in
+  if (hdrs = []) || (recs = []) then
+	printf "empty database!\n"
+  else
+	printf "headers: %d, records: %d\n"
 	  (List.length hdrs) (List.length recs)
