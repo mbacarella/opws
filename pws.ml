@@ -119,7 +119,7 @@ type record =
   | Password_history of string
   | Password_policy of string
   | Password_expiry_interval of int
-  | End_of_entry
+  | End_of_record
 
 let header_of_code cur length = function
   | 0x00 -> (assert (length = 2); Version (cursor_getshort cur))
@@ -155,7 +155,7 @@ let entry_of_code cur length = function
   | 0x0f -> Password_history (cursor_gets cur length)
   | 0x10 -> Password_policy (cursor_gets cur length)
   | 0x11 -> (assert (length = 2); Password_expiry_interval (cursor_getshort cur))
-  | 0xFF -> End_of_entry
+  | 0xFF -> End_of_record
   | code -> (failwith ("entry_of_code: unknown code: "^(string_of_int code)))
 
 
@@ -239,10 +239,7 @@ let decrypt_database k l ch chan =
     let d = cursor_getchar cur in
     let x = (Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)) in
     let code = int_of_char (cursor_getchar cur) in
-    begin
-      printf "length: %d, code: %d\n" x code;
-      f cur x code
-    end
+    f cur x code
   in
   let next_header_field = read_field header_of_code in
   let next_entry_field = read_field entry_of_code in
@@ -253,22 +250,20 @@ let decrypt_database k l ch chan =
         collect_headers cur (header::accum) (next_header_field cur)
   in
   let rec collect_entries cur accum = function
-    | End_of_entry -> List.rev accum
+    | End_of_record -> List.rev accum
     | record ->
         collect_entries cur (record::accum) (next_entry_field cur)
   in
-  let rec collect_database cur accum =
-    let entries = 
-      try
-        collect_entries cur [] (next_entry_field cur)
-      with
-      | End_of_database -> List.rev accum
-    in
-    collect_database cur (entries @ accum)
+  let rec collect_records cur accum =
+    let entries = collect_entries cur [] (next_entry_field cur) in
+    try (* XXX: not tail recursive *)
+      collect_records cur (entries :: accum)
+    with
+    | End_of_database -> List.rev accum
   in
   let headers = collect_headers cur [] (next_header_field cur) in
-  let database = collect_database cur [] in
-  headers, database
+  let records = collect_records cur [] in
+  headers, records
 
 let make_keys ch p' =
   let join ctx a b =
@@ -306,34 +301,61 @@ let load_database fn passphrase =
   | Sys_error fn -> failwith ("load_database: error accessing " ^ fn)
   | End_of_file -> failwith ("load_database: "
 		                     ^fn^": corrupted database (EOF reached unexpectedly)")
+
+let dump_field = function
+  | Group group -> printf "%s|" group
+  | Title title -> printf "%s|" title
+  | Username username -> printf "%s|" username
+  | Password password -> printf "%s|" password
+  | URL url -> printf "%s" url
+  | _ -> ()
+
+let rec dump_fields = function
+  | [] -> printf "\n"
+  | field::fields ->
+      dump_field field;
+      dump_fields fields
+
+let rec dump_records = function
+  | [] -> ()
+  | record::records ->
+      dump_fields record;
+      dump_records records
       
 let parse_args () =
-  let usage_msg = "Usage: pwsafe [OPTIONS]" in
+  let usage_msg = "Usage: opws [OPTIONS]" in
   let usage () =
     printf "%s\n" usage_msg;
     exit 1
   in
   let anonargs = ref [] in
-  let safe = ref "/home/mbacarella/.pwsafe.psafe3" in
+  let safe_file = ref "/home/mbacarella/.pwsafe.psafe3" in
+  let dump_flag = ref false in
+	let pattern = ref ".*" in
   let speclist = [
-    ("-s", Arg.Set_string safe, "path Path to password safe file")
+    ("-s", Arg.Set_string safe_file, "path Path to PSAFE3 file");
+    ("-d", Arg.Set dump_flag, " Dump database to standard out as plaintext");
+	  ("-f", Arg.Set_string pattern, "pattern List entries which match PATTERN")
   ]
   in
   Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
     match !anonargs with
-    | [] -> !safe
+    | [] -> !safe_file, !dump_flag
     | _ -> usage ()
         
 let () =
-  let fn = parse_args () in
-  printf "Opening database at %s\n" fn;
-  let hdrs, recs =
+  let safe_file, dump_flag = parse_args () in
+  printf "Opening database at %s\n" safe_file;
+  let headers, records =
     match Prompt.read_password "Enter safe combination: " with
-	| Some passphrase -> load_database fn passphrase
+	| Some passphrase -> load_database safe_file passphrase
 	| None -> [], []
   in
-  if (hdrs = []) || (recs = []) then
-	printf "empty database!\n"
+  if (headers = []) || (records = []) then
+	printf "The database is empty.\n"
   else
-	printf "headers: %d, records: %d\n"
-	  (List.length hdrs) (List.length recs)
+    if dump_flag then
+      dump_records records
+    else
+	  printf "Headers: %d, Records: %d\n"
+	    (List.length headers) (List.length records)
