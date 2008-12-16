@@ -321,15 +321,16 @@ let rec dump_records = function
   | record::records ->
       dump_fields record;
       dump_records records
-      
+
 let parse_args () =
+  let homedir = Unix.getenv "HOME" in
   let usage_msg = "Usage: opws [OPTIONS]" in
   let usage () =
     printf "%s\n" usage_msg;
     exit 1
   in
   let anonargs = ref [] in
-  let safe_file = ref "/home/mbacarella/.pwsafe.psafe3" in
+  let safe_file = ref (homedir^"/.pwsafe.psafe3") in
   let dump_flag = ref false in
 	let pattern = ref ".*" in
   let speclist = [
