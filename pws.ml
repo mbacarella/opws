@@ -69,11 +69,13 @@ let cursor_getshort cur =
   let b = cursor_getchar cur in
   Bin.unpack16_le (sprintf "%c%c" a b)
 
-let cursor_gettime cur =
+let cursor_gettime cur length =
+	assert (length = 4 || length = 8);
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
   let c = cursor_getchar cur in
   let d = cursor_getchar cur in
+	(* 8-byte timestamps are just not supported *)
   Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)
 
 let cursor_gets cur = function
@@ -126,7 +128,7 @@ let header_of_code cur length = function
   | 0x01 -> (assert (length = 16); Header_UUID (cursor_gets cur 16))
   | 0x02 -> Non_default_preferences (cursor_gets cur length)
   | 0x03 -> Tree_display_status (cursor_gets cur length)
-  | 0x04 -> (assert (length = 8); Timestamp_of_last_save (cursor_gettime cur))
+  | 0x04 -> Timestamp_of_last_save (cursor_gettime cur length)
   | 0x05 -> Who_performed_last_save (cursor_gets cur length)
   | 0x06 -> What_performed_last_save (cursor_gets cur length)
   | 0x07 -> Last_saved_by_user (cursor_gets cur length)
@@ -144,12 +146,12 @@ let entry_of_code cur length = function
   | 0x04 -> Username (cursor_gets cur length)
   | 0x05 -> Notes (cursor_gets cur length)
   | 0x06 -> Password (cursor_gets cur length)
-  | 0x07 -> (assert (length = 4); Creation_time (cursor_gettime cur))
-  | 0x08 -> (assert (length = 4); Password_modification_time (cursor_gettime cur))
-  | 0x09 -> (assert (length = 4); Last_access_time (cursor_gettime cur))
-  | 0x0a -> (assert (length = 4); Password_expiry_time (cursor_gettime cur))
-  | 0x0b -> (assert (length = 4); Reserved (cursor_gets cur 4))
-  | 0x0c -> (assert (length = 4); Last_modification_time (cursor_gettime cur))
+  | 0x07 -> Creation_time (cursor_gettime cur length)
+  | 0x08 -> Password_modification_time (cursor_gettime cur length)
+  | 0x09 -> Last_access_time (cursor_gettime cur length)
+  | 0x0a -> Password_expiry_time (cursor_gettime cur length)
+  | 0x0b -> Reserved (cursor_gets cur 4)
+  | 0x0c -> Last_modification_time (cursor_gettime cur length)
   | 0x0d -> URL (cursor_gets cur length)
   | 0x0e -> Autotype (cursor_gets cur length)
   | 0x0f -> Password_history (cursor_gets cur length)
@@ -193,7 +195,7 @@ let load_clrtxt_header chan =
           let b = read_blob chan (bits / 8) in
           b
         end
-    | (_,_) -> raise (Invalid_argument
+    | _ -> raise (Invalid_argument
 			            "in_bits: off and bits must be multiples of 8")
   in                 
   let clrtxt_header = 
@@ -324,10 +326,10 @@ let rec dump_records = function
 
 let parse_args () =
   let homedir = Unix.getenv "HOME" in
-  let usage_msg = "Usage: opws [OPTIONS]" in
+  let usage_msg = "Usage: opws [OPTIONS] [PATTERN]" in
   let usage () =
     printf "%s\n" usage_msg;
-    exit 1
+    exit 0
   in
   let anonargs = ref [] in
   let safe_file = ref (homedir^"/.pwsafe.psafe3") in
@@ -336,16 +338,16 @@ let parse_args () =
   let speclist = [
     ("-s", Arg.Set_string safe_file, "path Path to PSAFE3 file");
     ("-d", Arg.Set dump_flag, " Dump database to standard out as plaintext");
-	  ("-f", Arg.Set_string pattern, "pattern List entries which match PATTERN")
+	("-f", Arg.Set_string pattern, "pattern List entries which match PATTERN")
   ]
   in
   Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
-    match !anonargs with
-    | [] -> !safe_file, !dump_flag
-    | _ -> usage ()
+  match !anonargs with
+  | [] -> !safe_file, !dump_flag, !pattern
+  | _ -> usage ()
         
 let () =
-  let safe_file, dump_flag = parse_args () in
+  let safe_file, dump_flag, pattern = parse_args () in
   printf "Opening database at %s\n" safe_file;
   let headers, records =
     match Prompt.read_password "Enter safe combination: " with
