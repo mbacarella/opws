@@ -324,36 +324,6 @@ let rec dump_records = function
       dump_fields record;
       dump_records records
 
-(*
-Usage: pwsafe [OPTION] command [ARG]
-Options:
-  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)
-  -I, --case                 perform case sensative matching
-  -l                         long listing (show username & notes)
-  -u, --username             emit username of listed account
-  -p, --password             emit password of listed account
-  -E, --echo                 force echoing of entry to stdout
-  -o, --output=FILE          redirect output to file (implies -E)
-  --dbversion=[1|2]          specify database file version (default is 2)
-  -x, --xclip                force copying of entry to X selection
-  -d, --display=XDISPLAY     override $DISPLAY (implies -x)
-  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)
-  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist and klipper)
-  -q, --quiet                print no extra information
-  -v, --verbose              print more information (can be repeated)
-  -h, --help                 display this help and exit
-  -V, --version              output version information and exit
-Commands:
-  --createdb                 create an empty database
-  --exportdb                 dump database as text
-  --mergedb=DATABASE_FILE2   merge entries from FILE2 into database
-  --passwd                   change database passphrase
-  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only one entry may match
-  -a, --add [NAME]           add an entry
-  -e, --edit REGEX           edit an entry
-  --delete NAME              delete an entry
-*)
-
 type param =
     {
       pattern: string list;
