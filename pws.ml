@@ -324,40 +324,118 @@ let rec dump_records = function
       dump_fields record;
       dump_records records
 
+(*
+Usage: pwsafe [OPTION] command [ARG]
+Options:
+  -f, --file=DATABASE_FILE   specify the database file (default is ~/.pwsafe.dat)
+  -I, --case                 perform case sensative matching
+  -l                         long listing (show username & notes)
+  -u, --username             emit username of listed account
+  -p, --password             emit password of listed account
+  -E, --echo                 force echoing of entry to stdout
+  -o, --output=FILE          redirect output to file (implies -E)
+  --dbversion=[1|2]          specify database file version (default is 2)
+  -x, --xclip                force copying of entry to X selection
+  -d, --display=XDISPLAY     override $DISPLAY (implies -x)
+  -s, --selection={Primary,Secondary,Clipboard,Both} select the X selection effected (implies -x)
+  -G, --ignore=NAME@HOST     add NAME@HOST to set of windows that don't receive the selection. Either NAME or @HOST can be omitted. (default is xclipboard, wmcliphist and klipper)
+  -q, --quiet                print no extra information
+  -v, --verbose              print more information (can be repeated)
+  -h, --help                 display this help and exit
+  -V, --version              output version information and exit
+Commands:
+  --createdb                 create an empty database
+  --exportdb                 dump database as text
+  --mergedb=DATABASE_FILE2   merge entries from FILE2 into database
+  --passwd                   change database passphrase
+  [--list] [REGEX]           list all [matching] entries. If -u and/or -p are given, only one entry may match
+  -a, --add [NAME]           add an entry
+  -e, --edit REGEX           edit an entry
+  --delete NAME              delete an entry
+*)
+
+type param =
+    {
+      pattern: string list;
+      safe_file: string;
+      case_sensitive: bool;
+      long_listing: bool;
+      username: string option;
+      password: string option;
+      echo: bool;
+      output_file: string option;
+      dbversion: int;
+      quiet: bool;
+      verbose: bool;
+    }
+
 let parse_args () =
   let homedir = Unix.getenv "HOME" in
-  let usage_msg = "Usage: opws [OPTIONS] [PATTERN]" in
-  let usage () =
-    printf "%s\n" usage_msg;
-    exit 0
-  in
-  let anonargs = ref [] in
   let safe_file = ref (homedir^"/.pwsafe.psafe3") in
-  let dump_flag = ref false in
-	let pattern = ref ".*" in
+  let case_sensitive = ref false in
+  let long_listing = ref false in
+  let dbversion = ref 3 in
+  let username = ref "" in
+  let password = ref "" in
+  let echo = ref false in
+  let output_file = ref "" in
+  let quiet = ref false in
+  let verbose = ref false in
+
+  let usage_msg = "Usage: opws [OPTIONS] [PATTERN]" in
+
+  let anonargs = ref [] in
   let speclist = [
-    ("-s", Arg.Set_string safe_file, "path Path to PSAFE3 file");
-    ("-d", Arg.Set dump_flag, " Dump database to standard out as plaintext");
-	("-f", Arg.Set_string pattern, "pattern List entries which match PATTERN")
+    ("-f", Arg.Set_string safe_file,
+     sprintf "PATH Path to PSAFE3 file (default: %s)" !safe_file);
+    ("-I", Arg.Set case_sensitive, " perform case-sensitive matching");
+    ("-l", Arg.Set long_listing, " long listing (show username and notes)");
+    ("-u", Arg.Set_string username, " emit username of listed account");
+    ("-p", Arg.Set_string password, " emit password of listed account");
+    ("-E", Arg.Set echo, " force echoing of entry to stdout");
+    ("-o", Arg.Set_string output_file,
+     "FILE redirect output to file (implies -E)");
+    ("--dbversion=[1|2|3]",
+     Arg.Set_int dbversion, " specify database file version");
+    ("-q", Arg.Set quiet, " print no extra information");
+    ("-v", Arg.Set verbose, " print more information");
   ]
   in
   Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
-  match !anonargs with
-  | [] -> !safe_file, !dump_flag, !pattern
-  | _ -> usage ()
+
+  if !dbversion <> 3 then
+    (failwith "only dbversion=3 is supported");
+
+  let some_wrapper = function
+    | "" -> None
+    | x -> Some x
+  in
+  {
+    pattern = !anonargs;
+    safe_file = !safe_file;
+    case_sensitive = !case_sensitive;
+    long_listing = !long_listing;
+    username = some_wrapper !username;
+    password = some_wrapper !password;
+    echo = !echo;
+    output_file = some_wrapper !output_file;
+    dbversion = !dbversion;
+    quiet = !quiet;
+    verbose = !verbose;
+  }
         
 let () =
-  let safe_file, dump_flag, pattern = parse_args () in
-  printf "Opening database at %s\n" safe_file;
+  let p = parse_args () in
+  printf "Opening database at %s\n" p.safe_file;
   let headers, records =
     match Prompt.read_password "Enter safe combination: " with
-	| Some passphrase -> load_database safe_file passphrase
+	| Some passphrase -> load_database p.safe_file passphrase
 	| None -> [], []
   in
   if (headers = []) || (records = []) then
 	printf "The database is empty.\n"
   else
-    if dump_flag then
+    if p.echo then
       dump_records records
     else
 	  printf "Headers: %d, Records: %d\n"
