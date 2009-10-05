@@ -1,3 +1,21 @@
+(* Binary data manipulation routines
+   Copyright (C) 2008 Michael Bacarella <mbac@panix.com>
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+*)
+
 
 let chr x = char_of_int x
 let ord c = int_of_char c
@@ -14,13 +32,6 @@ let add32 x y = Int32.add x y
 let not32 x = Int32.lognot x
 
 let add64 x y = Int64.add x y
-let and64 x n = Int64.logand x n
-let xor64 x y = Int64.logxor x y
-let or64 x y = Int64.logor x y
-let right64 x n = Int64.shift_right_logical x n
-let left64 x n = Int64.shift_left x n
-let ror64 x n = or64 (right64 x n)  (left64 x (64-n))
-let rol64 x n = or64  (left64 x n) (right64 x (64-n))
 
 let int64eq x y = (Int64.compare x y) = 0
 let int64true x = (int64eq x 0L) = false
@@ -47,7 +58,7 @@ let pack64 x =
   let b = Buffer.create 8 in 
     for i = 0 to 7 do
       let shft = (7-i)*8 in
-        Buffer.add_char b (chr (Int64.to_int (and64 (Int64.shift_right x shft) 0xFFL)));
+        Buffer.add_char b (chr (Int64.to_int (Int64.logand (Int64.shift_right x shft) 0xFFL)));
     done;
     b
 

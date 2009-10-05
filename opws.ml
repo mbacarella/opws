@@ -1,7 +1,28 @@
+(* An implementation of PWSAFE command-line which supports v3 databases
+   Copyright (C) 2008 Michael Bacarella <mbac@panix.com>
+
+   This program is free software; you can redistribute it and/or modify
+   it under the terms of the GNU General Public License as published by
+   the Free Software Foundation; either version 2 of the License, or
+   (at your option) any later version.
+
+   This program is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program; if not, write to the Free Software
+   Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+
+   See formatv3.txt for some answers
+*)
+
 
 open Printf
 
-(* see formatv3.txt for some answers *)
+let echo_passwords = ref false ;;
+let iff p t e = if p then t else e ;;
 
 type clear_header =
   {
@@ -69,13 +90,11 @@ let cursor_getshort cur =
   let b = cursor_getchar cur in
   Bin.unpack16_le (sprintf "%c%c" a b)
 
-let cursor_gettime cur length =
-	assert (length = 4 || length = 8);
+let cursor_gettime cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
   let c = cursor_getchar cur in
   let d = cursor_getchar cur in
-	(* 8-byte timestamps are just not supported *)
   Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)
 
 let cursor_gets cur = function
@@ -83,7 +102,7 @@ let cursor_gets cur = function
   | length ->
       let b = Buffer.create length in
       let rec loop = function
-	    | 0 -> Buffer.contents b
+	      | 0 -> Buffer.contents b
         | i -> (Buffer.add_char b (cursor_getchar cur); loop (i-1))
       in
       loop length
@@ -128,7 +147,7 @@ let header_of_code cur length = function
   | 0x01 -> (assert (length = 16); Header_UUID (cursor_gets cur 16))
   | 0x02 -> Non_default_preferences (cursor_gets cur length)
   | 0x03 -> Tree_display_status (cursor_gets cur length)
-  | 0x04 -> Timestamp_of_last_save (cursor_gettime cur length)
+  | 0x04 -> (assert (length = 8); Timestamp_of_last_save (cursor_gettime cur))
   | 0x05 -> Who_performed_last_save (cursor_gets cur length)
   | 0x06 -> What_performed_last_save (cursor_gets cur length)
   | 0x07 -> Last_saved_by_user (cursor_gets cur length)
@@ -146,12 +165,12 @@ let entry_of_code cur length = function
   | 0x04 -> Username (cursor_gets cur length)
   | 0x05 -> Notes (cursor_gets cur length)
   | 0x06 -> Password (cursor_gets cur length)
-  | 0x07 -> Creation_time (cursor_gettime cur length)
-  | 0x08 -> Password_modification_time (cursor_gettime cur length)
-  | 0x09 -> Last_access_time (cursor_gettime cur length)
-  | 0x0a -> Password_expiry_time (cursor_gettime cur length)
-  | 0x0b -> Reserved (cursor_gets cur 4)
-  | 0x0c -> Last_modification_time (cursor_gettime cur length)
+  | 0x07 -> (assert (length = 4); Creation_time (cursor_gettime cur))
+  | 0x08 -> (assert (length = 4); Password_modification_time (cursor_gettime cur))
+  | 0x09 -> (assert (length = 4); Last_access_time (cursor_gettime cur))
+  | 0x0a -> (assert (length = 4); Password_expiry_time (cursor_gettime cur))
+  | 0x0b -> (assert (length = 4); Reserved (cursor_gets cur 4))
+  | 0x0c -> (assert (length = 4); Last_modification_time (cursor_gettime cur))
   | 0x0d -> URL (cursor_gets cur length)
   | 0x0e -> Autotype (cursor_gets cur length)
   | 0x0f -> Password_history (cursor_gets cur length)
@@ -195,7 +214,7 @@ let load_clrtxt_header chan =
           let b = read_blob chan (bits / 8) in
           b
         end
-    | _ -> raise (Invalid_argument
+    | (_,_) -> raise (Invalid_argument
 			            "in_bits: off and bits must be multiples of 8")
   in                 
   let clrtxt_header = 
@@ -301,112 +320,93 @@ let load_database fn passphrase =
       end
   with
   | Sys_error fn -> failwith ("load_database: error accessing " ^ fn)
-  | End_of_file -> failwith ("load_database: "
-		                     ^fn^": corrupted database (EOF reached unexpectedly)")
+  | End_of_file  -> failwith ("load_database: "^fn^
+        ": corrupted database (unexpected end of file)")
 
-let dump_field = function
-  | Group group -> printf "%s|" group
-  | Title title -> printf "%s|" title
-  | Username username -> printf "%s|" username
-  | Password password -> printf "%s|" password
-  | URL url -> printf "%s" url
-  | _ -> ()
+let format_field = function
+  | Group group       -> "Group: "^group^"\n"
+  | Title title       -> "Title: "^title^"\n"
+  | Username username -> "Username: "^username^"\n"
+  | Password password -> "Password: "
+      ^(if !echo_passwords then password else "************")^"\n"
+  | Notes notes       -> "Notes: "^notes^"\n"
+  | URL url           -> "URL: "^url^"\n"
+  | Autotype autotype -> "Autotype: "^autotype^"\n"
+  | Password_expiry_interval _
+  | Password_policy _
+  | Password_history _
+  | Last_modification_time _
+  | Reserved _
+  | Password_expiry_time _
+  | Last_access_time _
+  | Password_modification_time _
+  | Creation_time _
+  | Record_UUID _ 
+  | End_of_record -> ""
+;;
 
 let rec dump_fields = function
-  | [] -> printf "\n"
-  | field::fields ->
-      dump_field field;
-      dump_fields fields
+  | []        -> "\n"
+  | f::fields -> (format_field f)^(dump_fields fields)
+;;
 
-let rec dump_records = function
-  | [] -> ()
-  | record::records ->
-      dump_fields record;
-      dump_records records
-
-type param =
-    {
-      pattern: string list;
-      safe_file: string;
-      case_sensitive: bool;
-      long_listing: bool;
-      username: string option;
-      password: string option;
-      echo: bool;
-      output_file: string option;
-      dbversion: int;
-      quiet: bool;
-      verbose: bool;
-    }
+let rec dump_records match_fun = function
+  | []            -> ()
+  | r::records ->
+     if match_fun r then
+       printf "-----\n%s" (dump_fields r)
+     else
+       ();
+     dump_records match_fun records
+;;
 
 let parse_args () =
-  let homedir = Unix.getenv "HOME" in
-  let safe_file = ref (homedir^"/.pwsafe.psafe3") in
-  let case_sensitive = ref false in
-  let long_listing = ref false in
-  let dbversion = ref 3 in
-  let username = ref "" in
-  let password = ref "" in
-  let echo = ref false in
-  let output_file = ref "" in
-  let quiet = ref false in
-  let verbose = ref false in
-
-  let usage_msg = "Usage: opws [OPTIONS] [PATTERN]" in
-
+  let usage_msg = "Usage: opws [OPTIONS]" in
+  let usage () =
+    printf "%s\n" usage_msg;
+    exit 1
+  in
+  let home = Unix.getenv "HOME" in
   let anonargs = ref [] in
-  let speclist = [
-    ("-f", Arg.Set_string safe_file,
-     sprintf "PATH Path to PSAFE3 file (default: %s)" !safe_file);
-    ("-I", Arg.Set case_sensitive, " perform case-sensitive matching");
-    ("-l", Arg.Set long_listing, " long listing (show username and notes)");
-    ("-u", Arg.Set_string username, " emit username of listed account");
-    ("-p", Arg.Set_string password, " emit password of listed account");
-    ("-E", Arg.Set echo, " force echoing of entry to stdout");
-    ("-o", Arg.Set_string output_file,
-     "FILE redirect output to file (implies -E)");
-    ("--dbversion=[1|2|3]",
-     Arg.Set_int dbversion, " specify database file version");
-    ("-q", Arg.Set quiet, " print no extra information");
-    ("-v", Arg.Set verbose, " print more information");
-  ]
-  in
-  Arg.parse speclist (fun d -> anonargs := d :: !anonargs) usage_msg;
+  let safe_file = ref (home ^ "/.pwsafe.psafe3") in
+  let dump_all = ref false in
+  let dump_title = ref "" in
+	let pattern = ref ".*" in
+  Arg.parse [
+    ("-s", Arg.Set_string safe_file, "path Path to PSAFE3 file");
+    ("-d", Arg.Set dump_all, " Display all records");
+    ("-t", Arg.Set_string dump_title, "title Display records with this title");
+    ("-p", Arg.Set echo_passwords," Echo passwords")
+  ] (fun d -> anonargs := d :: !anonargs) usage_msg;
+    match !anonargs with
+    | [] -> !safe_file, !dump_all, !dump_title
+    | _ -> usage ()
+;;
 
-  if !dbversion <> 3 then
-    (failwith "only dbversion=3 is supported");
-
-  let some_wrapper = function
-    | "" -> None
-    | x -> Some x
-  in
-  {
-    pattern = !anonargs;
-    safe_file = !safe_file;
-    case_sensitive = !case_sensitive;
-    long_listing = !long_listing;
-    username = some_wrapper !username;
-    password = some_wrapper !password;
-    echo = !echo;
-    output_file = some_wrapper !output_file;
-    dbversion = !dbversion;
-    quiet = !quiet;
-    verbose = !verbose;
-  }
-        
 let () =
-  let p = parse_args () in
-  printf "Opening database at %s\n" p.safe_file;
+  let safe_file, dump_all, dump_title = parse_args () in
+  printf "Opening database at %s\n" safe_file;
   let headers, records =
     match Prompt.read_password "Enter safe combination: " with
-	| Some passphrase -> load_database p.safe_file passphrase
+	| Some passphrase -> load_database safe_file passphrase
 	| None -> [], []
   in
   if (headers = []) || (records = []) then
 	printf "The database is empty.\n"
   else
-    if p.echo then
-      dump_records records
+    if dump_all then
+      dump_records (fun _ -> true) records
+    else if dump_title <> "" then
+      dump_records (fun r ->
+        let rec match_title = function
+        | [] -> false
+        | f::fields ->
+           (match f with
+            | Title title ->
+               if dump_title = title then true else match_title fields
+            | _ -> match_title fields)
+        in
+        match_title r) records
     else
-	  printf "Headers: %d, Records: %d\n"
-	    (List.length headers) (List.length records)
+	    printf "Database OK (headers: %d, records: %d).  Run with -help for options.\n"
+	      (List.length headers) (List.length records)

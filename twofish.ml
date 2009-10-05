@@ -22,6 +22,14 @@
 
 open Bin
 
+let ( << ) x y = left32 x y ;;
+let ( >> ) x y = right32 x y ;;
+let ( & ) x y = and32 x y ;;
+
+(* ^ is more useful as a 32-bit XOR than it is as a string-concat *)
+let ( ^^ ) = ( ^ ) ;;
+let ( ^ ) x y = xor32 x y ;;
+
 type ctx = {
     k : Int32.t array;
     s : Int32.t array array; (* s-boxes *)
@@ -267,7 +275,8 @@ let ord32 c = Int32.of_int (ord c)
 let unpack_longs s n =
   let slen = String.length s in
   if (slen/4) < n then
-    failwith ("unpack_longs: asked to unpack "^(string_of_int n)^" longs from string length "^(string_of_int slen))
+    failwith ("unpack_longs: asked to unpack "^^(string_of_int n)^^" longs from
+    string length "^^(string_of_int slen))
   else
   let rec unpack_long i accum =
     if i == n then
@@ -277,7 +286,7 @@ let unpack_longs s n =
       let b = ord32 s.[i*4+1] in
       let c = ord32 s.[i*4+2] in
       let d = ord32 s.[i*4+3] in
-        unpack_long (i+1) (or32 (left32 d 24) (or32 (left32 c 16) (or32 (left32 b 8) a)) :: accum)
+      unpack_long (i+1) (or32 (d << 24) (or32 (c << 16) (or32 (b << 8) a)) :: accum)
   in
   Array.of_list (unpack_long 0 [])
 
@@ -286,10 +295,10 @@ let chr32 x = chr (Int32.to_int x)
 
 let pack_long b x =
   begin
-    Buffer.add_char b (chr32 (and32 (right32 x  0) 0xFFl));
-    Buffer.add_char b (chr32 (and32 (right32 x  8) 0xFFl));
-    Buffer.add_char b (chr32 (and32 (right32 x 16) 0xFFl));
-    Buffer.add_char b (chr32 (and32 (right32 x 24) 0xFFl));
+    Buffer.add_char b (chr32 (and32 (x >> 0) 0xFFl));
+    Buffer.add_char b (chr32 (and32 (x >> 8) 0xFFl));
+    Buffer.add_char b (chr32 (and32 (x >> 16) 0xFFl));
+    Buffer.add_char b (chr32 (and32 (x >> 24) 0xFFl));
   end
 
 let pack_longs a =
@@ -307,44 +316,50 @@ let string_map f s =
     else
       (f s.[i]) :: apply (i+1)
   in
-    apply 0
+  apply 0
 
 let mds_rem a b =
-  let ff x = (and64 x 0xFFL) in
+  let ( << ) x y = Int64.shift_left x y in
+  let ( >> ) x y = Int64.shift_right_logical x y in
+  let ( ^ ) x y = Int64.logxor x y in
+  let ( & ) x y = Int64.logand x y in
+  let ( -|- ) x y = Int64.logor x y in
+
+  let ff x = x & 0xFFL in
   let ffi x = Int64.to_int (ff x) in
 
   let rec mds_rem_ab a b = function
-    | 8 -> (ffi (right64 b 24), ffi (right64 b 16), ffi (right64 b 8), ffi b)
+    | 8 -> (ffi (b >> 24), ffi (b >> 16), ffi (b >> 8), ffi b)
     | i -> 
         (* Get most significant coefficient *)
-        let t = (ff (right64 b 24)) in
+        let t = (ff (b >> 24)) in
         (* Shift the "others" up *)
-        let b = or64 (left64 b 8) (ff (right64 a 24)) in
-        let a = left64 a 8 in
-        let u = left64 t 1 in
+        let b = (b << 8) -|- (ff (a >> 24)) in
+        let a = a << 8 in
+        let u = t << 1 in
       
         (* Subtract the modular polynomial on overflow *)
-        let u = if int64true (and64 t 0x80L) then (xor64 u 0x14dL) else u in
+        let u = if int64true (t & 0x80L) then (u ^ 0x14dL) else u in
 
         (* Remove t * (a * x^2 + 1) *)
-        let b = xor64 b (xor64 t (left64 u 16)) in
+        let b = b ^ (t ^ (u << 16)) in
     
         (* Form u = a*t + t/a = t*(a + 1/a) *)
-        let u = xor64 u (and64 0x7FFFFFFFL (right64 t 1)) in
+        let u = u ^ (0x7FFFFFFFL & (t >> 1)) in
 
         (* Add the modular polynomial on underflow *)
-        let u = if int64true (and64 t 0x01L) then (xor64 u 0xA6L) else u in
+        let u = if int64true (t & 0x01L) then (u ^ 0xA6L) else u in
 
         (* Remove t * (a + 1/a) * (x^3 + x) *)
-        let b = (xor64 b (or64 (left64 u 24) (left64 u 8))) in
+        let b = (b ^ ((u << 24) -|- (u << 8))) in
           mds_rem_ab a b (i+1)
   in
-    mds_rem_ab (and64 (Int64.of_int32 a) 0xFFFFFFFFL) (and64 (Int64.of_int32 b) 0xFFFFFFFFL) 0
+    mds_rem_ab ((Int64.of_int32 a) & 0xFFFFFFFFL) ((Int64.of_int32 b) & 0xFFFFFFFFL) 0
 
 let init key =
   let keylength = String.length key in
   if keylength != 32 then
-    failwith ("init: key length must be 32, got key length "^string_of_int (keylength))
+    failwith ("init: key length must be 32, got key length "^^string_of_int (keylength))
   else
   let le_longs = unpack_longs key 8 in
   
@@ -373,10 +388,10 @@ let init key =
 	      m1.(mds j q0 q1 q1 q0 k.(29) k.(21) k.(13) k.(5))
 	      m2.(mds j q1 q0 q0 q0 k.(30) k.(22) k.(14) k.(6))
 	      m3.(mds j q1 q1 q0 q1 k.(31) k.(23) k.(15) k.(7)) in
-        let b = (or32 (left32 b 8) (and32 (right32 b 24) 0xFFl)) in
+        let b = (or32 (b << 8) (and32 (b >> 24) 0xFFl)) in
         let a = add32 a b in
         let a' = add32 a b in
-          calc_k (((or32 (left32 a' 9) (and32 (right32 a' 23) 0x1FFl))) :: a :: accum) (i+2)
+          calc_k (((or32 (a' << 9) (and32 (a' >> 23) 0x1FFl))) :: a :: accum) (i+2)
   in
   let rec calc_sbox s0list s1list s2list s3list = function
     | 256 -> [| fix s0list; fix s1list; fix s2list; fix s3list |]
@@ -409,39 +424,39 @@ let encrypt ctx text =
     | i ->
 	let _i x = Int32.to_int x in
 	let t0 = xor4_32
-      s0.(_i (and32 r0 0xFFl))
-      s1.(_i (and32 (right32 r0  8) 0xFFl))
- 	  s2.(_i (and32 (right32 r0 16) 0xFFl))
-	  s3.(_i (and32 (right32 r0 24) 0xFFl)) in
+    s0.(_i (and32 r0 0xFFl))
+    s1.(_i (and32 (r0 >>  8) 0xFFl))
+ 	  s2.(_i (and32 (r0 >> 16) 0xFFl))
+	  s3.(_i (and32 (r0 >> 24) 0xFFl)) in
 	let t1 = xor4_32
-      s0.(_i (and32 (right32 r1 24) 0xFFl))
-      s1.(_i (and32 r1 0xFFl))
-      s2.(_i (and32 (right32 r1  8) 0xFFl))
-      s3.(_i (and32 (right32 r1 16) 0xFFl)) in
+    s0.(_i (and32 (r1 >> 24) 0xFFl))
+    s1.(_i (and32 r1 0xFFl))
+    s2.(_i (and32 (r1 >> 8) 0xFFl))
+    s3.(_i (and32 (r1 >>16) 0xFFl)) in
 
 	let r2 = (xor32 r2 (add32 (add32 t0 t1) k.(8+4*i))) in
-	let r2 = (or32 (and32 (right32 r2 1) 0x7FFFFFFFl) (left32 r2 31)) in
+	let r2 = (or32 (and32 (r2 >> 1) 0x7FFFFFFFl) (r2 << 31)) in
 
-	let r3 = (or32 (and32 (right32 r3 31) 1l) (left32 r3 1)) in
-	let r3 = (xor32 r3 (add32 t0 (add32 (left32 t1 1) k.(9+4*i)))) in
+	let r3 = (or32 (and32 (r3 >> 31) 1l) (r3 << 1)) in
+	let r3 = (xor32 r3 (add32 t0 (add32 (t1 << 1) k.(9+4*i)))) in
       
 	let t3 = xor4_32
-      s0.(_i (and32 r2 0xFFl)) 
-      s1.(_i (and32 (right32 r2  8) 0xFFl))
-	  s2.(_i (and32 (right32 r2 16) 0xFFl))
-	  s3.(_i (and32 (right32 r2 24) 0xFFl)) in
+    s0.(_i (and32 r2 0xFFl)) 
+    s1.(_i (and32 (r2 >>  8) 0xFFl))
+	  s2.(_i (and32 (r2 >> 16) 0xFFl))
+	  s3.(_i (and32 (r2 >> 24) 0xFFl)) in
 
-    let t4 = xor4_32
-      s0.(_i (and32 (right32 r3 24) 0xFFl))
-      s1.(_i (and32 r3 0xFFl))
-      s2.(_i (and32 (right32 r3  8) 0xFFl))
-      s3.(_i (and32 (right32 r3 16) 0xFFl)) in
+  let t4 = xor4_32
+    s0.(_i (and32 (r3 >> 24) 0xFFl))
+    s1.(_i (and32 r3 0xFFl))
+    s2.(_i (and32 (r3 >>  8) 0xFFl))
+    s3.(_i (and32 (r3 >> 16) 0xFFl)) in
       
 	let r0 = (xor32 r0 (add32 t3 (add32 t4 k.(10+4*i)))) in
-	let r0 = (or32 (and32 (right32 r0 1) 0x7FFFFFFFl) (left32 r0 31)) in
+	let r0 = (or32 (and32 (r0 >> 1) 0x7FFFFFFFl) (r0 << 31)) in
       
-	let r1 = (or32 (and32 (right32 r1 31) 1l) (left32 r1 1)) in
-	let r1 = (xor32 r1 (add32 t3 (add32 (left32 t4 1) k.(11+4*i)))) in
+	let r1 = (or32 (and32 (r1 >> 31) 1l) (r1 << 1)) in
+	let r1 = (xor32 r1 (add32 t3 (add32 (t4 << 1) k.(11+4*i)))) in
       
 	  round (r0,r1,r2,r3) (i+1)
   in
@@ -469,38 +484,38 @@ let decrypt ctx text =
         let _i x = Int32.to_int x in
         let t0 = xor4_32
           s0.(_i (and32 r0 0xFFl))
-          s1.(_i (and32 (right32 r0  8) 0xFFl))
-          s2.(_i (and32 (right32 r0 16) 0xFFl))
-          s3.(_i (and32 (right32 r0 24) 0xFFl)) in
+          s1.(_i (and32 (r0 >>  8) 0xFFl))
+          s2.(_i (and32 (r0 >> 16) 0xFFl))
+          s3.(_i (and32 (r0 >> 24) 0xFFl)) in
         let t1 = xor4_32
-          s0.(_i (and32 (right32 r1 24) 0xFFl))
+          s0.(_i (and32 (r1 >> 24) 0xFFl))
           s1.(_i (and32 r1 0xFFl))
-          s2.(_i (and32 (right32 r1  8) 0xFFl))
-          s3.(_i (and32 (right32 r1 16) 0xFFl)) in
+          s2.(_i (and32 (r1 >>  8) 0xFFl))
+          s3.(_i (and32 (r1 >> 16) 0xFFl)) in
 
-	    let r2 = (or32 (and32 (right32 r2 31) 0x1Fl) (left32 r2 1)) in
+	    let r2 = (or32 (and32 (r2 >> 31) 0x1Fl) (r2 << 1)) in
 	    let r2 = (xor32 r2 (add32 t0 (add32 t1 k.(10+4*i)))) in
 
-	    let r3 = (xor32 r3 (add32 (add32 t0 (left32 t1 1)) k.(11+4*i))) in
-	    let r3 = (or32 (and32 (right32 r3 1) 0x7FFFFFFFl) (left32 r3 31)) in
+	    let r3 = (xor32 r3 (add32 (add32 t0 (t1 << 1)) k.(11+4*i))) in
+	    let r3 = (or32 (and32 (r3 >> 1) 0x7FFFFFFFl) (r3 << 31)) in
 
 	    let t3 = xor4_32
           s0.(_i (and32 r2 0xFFl))
-	      s1.(_i (and32 (right32 r2  8) 0xFFl))
-	      s2.(_i (and32 (right32 r2 16) 0xFFl))
-	      s3.(_i (and32 (right32 r2 24) 0xFFl)) in
+	      s1.(_i (and32 (r2 >>  8) 0xFFl))
+	      s2.(_i (and32 (r2 >> 16) 0xFFl))
+	      s3.(_i (and32 (r2 >> 24) 0xFFl)) in
 
 	    let t4 = xor4_32
-          s0.(_i (and32 (right32 r3 24) 0xFFl))
+          s0.(_i (and32 (r3 >> 24) 0xFFl))
 	      s1.(_i (and32 r3 0xFFl))
-          s2.(_i (and32 (right32 r3  8) 0xFFl))
-	      s3.(_i (and32 (right32 r3 16) 0xFFl)) in
+          s2.(_i (and32 (r3 >> 8) 0xFFl))
+	      s3.(_i (and32 (r3 >> 16) 0xFFl)) in
 
-	    let r0 = (or32 (and32 (right32 r0 31) 0x1Fl) (left32 r0 1)) in
+	    let r0 = (or32 (and32 (r0 >> 31) 0x1Fl) (r0 << 1)) in
 	    let r0 = (xor32 r0 (add32 t3 (add32 t4 k.(8+4*i)))) in
           
-        let r1 = (xor32 r1 (add32 (add32 t3 (left32 t4 1)) k.(9+4*i))) in
-        let r1 = (or32 (and32 (right32 r1 1) 0x7FFFFFFFl) (left32 r1 31)) in    
+        let r1 = (xor32 r1 (add32 (add32 t3 (t4 << 1)) k.(9+4*i))) in
+        let r1 = (or32 (and32 (r1 >> 1) 0x7FFFFFFFl) (r1 << 31)) in    
 	  round (r0,r1,r2,r3) (i-1)
   in
   let (r0,r1,r2,r3) = round (r0,r1,r2,r3) 7 in
@@ -509,8 +524,7 @@ let decrypt ctx text =
                   (xor32 k.(2) r0);
                   (xor32 k.(3) r1) |]
 
-(* CBC mode protocol goes here *)
-
+(*
 let test() =
   let results = List.map (fun (k,p,c) ->
               let x1 = init k in
@@ -545,4 +559,7 @@ let test() =
     | true -> Printf.printf "all tests passed!\n"
     | false -> failwith "not all tests passed"
 
-(* let () = test () *)
+let () = test ()
+
+*)
+

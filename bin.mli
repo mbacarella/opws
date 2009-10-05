@@ -14,13 +14,6 @@ val add32 : Int32.t -> Int32.t -> Int32.t
 val not32 : Int32.t -> Int32.t
 
 val add64 : Int64.t -> Int64.t -> Int64.t
-val and64 : Int64.t -> Int64.t -> Int64.t
-val xor64 : Int64.t -> Int64.t -> Int64.t
-val or64 : Int64.t -> Int64.t -> Int64.t
-val right64 : Int64.t -> int -> Int64.t
-val left64 : Int64.t -> int -> Int64.t
-val ror64 : Int64.t -> int -> Int64.t
-val rol64 : Int64.t -> int -> Int64.t
 
 val int64eq : Int64.t -> Int64.t -> bool
 val int64true : Int64.t -> bool
