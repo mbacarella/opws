@@ -280,7 +280,7 @@ let decrypt_database k l ch chan =
     try (* XXX: not tail recursive *)
       collect_records cur (entries :: accum)
     with
-    | End_of_database -> List.rev accum
+    | End_of_database -> List.rev (entries :: accum)
   in
   let headers = collect_headers cur [] (next_header_field cur) in
   let records = collect_records cur [] in
