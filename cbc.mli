@@ -1,7 +1,4 @@
-type state =
-    {
-      mutable prev_v: string;
-    }
+type state = { mutable prev_v : string }
 
 val init : string -> state
 val encrypt : state -> (string -> string) -> string -> string
