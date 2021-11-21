@@ -1,4 +1,4 @@
-name: Main workflow
+name: Test build on Mac/Windows/Linux
 
 on:
   pull_request:
