@@ -1593,7 +1593,7 @@ let ord c = int_of_char c
 let ord32 c = Int32.of_int (ord c)
 
 let unpack_longs s n =
-  let slen = String.length s in
+  let slen = Bytes.length s in
   if slen / 4 < n
   then
     failwith
@@ -1606,10 +1606,10 @@ let unpack_longs s n =
       if i == n
       then List.rev accum
       else (
-        let a = ord32 s.[(i * 4) + 0] in
-        let b = ord32 s.[(i * 4) + 1] in
-        let c = ord32 s.[(i * 4) + 2] in
-        let d = ord32 s.[(i * 4) + 3] in
+        let a = ord32 (Bytes.get s ((i * 4) + 0)) in
+        let b = ord32 (Bytes.get s ((i * 4) + 1)) in
+        let c = ord32 (Bytes.get s ((i * 4) + 2)) in
+        let d = ord32 (Bytes.get s ((i * 4) + 3)) in
         unpack_long (i + 1) (or32 (d << 24) (or32 (c << 16) (or32 (b << 8) a)) :: accum))
     in
     Array.of_list (unpack_long 0 []))
@@ -1628,11 +1628,11 @@ let pack_longs a =
   for i = 0 to Array.length a - 1 do
     pack_long b a.(i)
   done;
-  Buffer.contents b
+  Buffer.to_bytes b
 
 let string_map f s =
-  let string_len = String.length s in
-  let rec apply i = if i = string_len then [] else f s.[i] :: apply (i + 1) in
+  let string_len = Bytes.length s in
+  let rec apply i = if i = string_len then [] else f (Bytes.get s i) :: apply (i + 1) in
   apply 0
 
 let mds_rem a b =
@@ -1667,7 +1667,7 @@ let mds_rem a b =
   mds_rem_ab (Int64.of_int32 a & 0xFFFFFFFFL) (Int64.of_int32 b & 0xFFFFFFFFL) 0
 
 let init key =
-  let keylength = String.length key in
+  let keylength = Bytes.length key in
   if keylength != 32
   then failwith ("init: key length must be 32, got key length " ^^ string_of_int keylength)
   else (

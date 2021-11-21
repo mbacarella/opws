@@ -229,7 +229,8 @@ let final ctx message =
     let pad_start = as_bits (Buffer.length message) in
     let message_length = ((original_length / bs_in_bits) + pad_blocks) * bs_in_bits in
     (* appending k bits of 0 (where message_length-64 is our k) *)
-    for i = as_bytes pad_start to as_bytes (message_length - as_bytes 64) - 8 do
+    (* XXX: Buffer.fill? *)
+    for _i = as_bytes pad_start to as_bytes (message_length - as_bytes 64) - 8 do
       Buffer.add_char message '\x00'
     done;
     Buffer.add_buffer message (pack64 ctx.total_length);

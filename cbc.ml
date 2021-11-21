@@ -16,15 +16,15 @@
    Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 *)
 
-type state = { mutable prev_v : string }
+type state = { mutable prev_v : bytes }
 
 let init iv = { prev_v = iv }
 
 let xor_strings b c =
   let int c = int_of_char c in
-  let a = String.copy b in
-  for i = 0 to String.length a - 1 do
-    a.[i] <- Bin.chr (int b.[i] lxor int c.[i])
+  let a = Bytes.copy b in
+  for i = 0 to Bytes.length a - 1 do
+    Bytes.set a i (Bin.chr (int (Bytes.get b i) lxor int (Bytes.get c i)))
   done;
   a
 

@@ -19,8 +19,8 @@
 open Unix
 
 let print_flush s =
-  Pervasives.print_string s;
-  Pervasives.flush Pervasives.stdout
+  Stdlib.print_string s;
+  Stdlib.flush Stdlib.stdout
 
 let read_password prompt =
   print_flush prompt;
@@ -36,7 +36,7 @@ let read_password prompt =
   print_flush "\n";
   password
 
-let test () =
+let _test () =
   match read_password "enter combination: " with
   | None -> failwith "error reading combination"
   | Some password -> Printf.printf "I enjoyed reading your password -->%s<--\n" password

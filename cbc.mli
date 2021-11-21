@@ -1,5 +1,5 @@
-type state = { mutable prev_v : string }
+type state = { mutable prev_v : bytes }
 
-val init : string -> state
-val encrypt : state -> (string -> string) -> string -> string
-val decrypt : state -> (string -> string) -> string -> string
+val init : bytes -> state
+val encrypt : state -> (bytes -> bytes) -> bytes -> bytes
+val decrypt : state -> (bytes -> bytes) -> bytes -> bytes

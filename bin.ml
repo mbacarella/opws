@@ -39,13 +39,13 @@ let unpack_le n s =
   let x = ref 0 in
   let n' = n / 8 in
   for i = 0 to n' - 1 do
-    x := !x lor (ord s.[i] lsl (i * 8))
+    x := !x lor (ord (Bytes.get s i) lsl (i * 8))
   done;
   !x
 
 let unpack8_le = unpack_le 8
 let unpack16_le = unpack_le 16
-let unpack24_le = unpack_le 24
+let _unpack24_le = unpack_le 24
 let unpack32_le = unpack_le 32
 
 (* packs big-endian *)

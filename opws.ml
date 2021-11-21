@@ -24,15 +24,15 @@ let echo_passwords = ref false
 let iff p t e = if p then t else e
 
 type clear_header =
-  { tag : string;
-    salt : string;
+  { tag : bytes;
+    salt : bytes;
     iter : int;
-    hofp : string;
-    b1 : string;
-    b2 : string;
-    b3 : string;
-    b4 : string;
-    iv : string
+    hofp : bytes;
+    b1 : bytes;
+    b2 : bytes;
+    b3 : bytes;
+    b4 : bytes;
+    iv : bytes
   }
 
 type database_cursor =
@@ -40,12 +40,14 @@ type database_cursor =
     chan : in_channel;
     chan_start : int;
     mutable chan_pos : int;
-    mutable block : string option;
+    mutable block : bytes option;
     mutable block_pos : int option;
     cbc : Cbc.state
   }
 
 exception End_of_database
+
+let pws3_eof_magic = Bytes.of_string "PWS3-EOFPWS3-EOF"
 
 let cursor_nextblock cur =
   let blocksize = 16 in
@@ -53,10 +55,10 @@ let cursor_nextblock cur =
   assert (cur.chan_pos mod blocksize = 0);
   (* read the block *)
   seek_in cur.chan (cur.chan_start + cur.chan_pos);
-  let block = String.create blocksize in
+  let block = Bytes.create blocksize in
   let dec = Twofish.decrypt cur.ctx in
   really_input cur.chan block 0 blocksize;
-  if block = "PWS3-EOFPWS3-EOF"
+  if block = pws3_eof_magic
   then raise End_of_database
   else (
     cur.block <- Some (Cbc.decrypt cur.cbc dec block);
@@ -71,20 +73,27 @@ let rec cursor_getchar cur =
     cursor_getchar cur
   | Some blk, Some pos ->
     cur.block_pos <- Some (pos + 1);
-    blk.[pos]
+    Bytes.get blk pos
   | _, _ -> failwith "read_byte: unexpected blk, pos"
 
 let cursor_getshort cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
-  Bin.unpack16_le (sprintf "%c%c" a b)
+  Bin.unpack16_le (Bytes.of_string (sprintf "%c%c" a b))
+
+let cursor_getlong cur =
+  let a = cursor_getchar cur in
+  let b = cursor_getchar cur in
+  let c = cursor_getchar cur in
+  let d = cursor_getchar cur in
+  Bin.unpack32_le (Bytes.of_string (sprintf "%c%c%c%c" a b c d))
 
 let cursor_gettime cur =
   let a = cursor_getchar cur in
   let b = cursor_getchar cur in
   let c = cursor_getchar cur in
   let d = cursor_getchar cur in
-  Bin.unpack32_le (sprintf "%c%c%c%c" a b c d)
+  Bin.unpack32_le (Bytes.of_string (sprintf "%c%c%c%c" a b c d))
 
 let cursor_gets cur = function
   | 0 -> ""
@@ -111,6 +120,7 @@ type header =
   | Database_name of string
   | Database_description of string
   | Database_filters of string
+  | Recently_used_entries of string
   | End_of_header
 
 type record =
@@ -131,19 +141,24 @@ type record =
   | Password_history of string
   | Password_policy of string
   | Password_expiry_interval of int
+  | Double_click_action of int
+  | Email_address of string
+  | Swift_double_click_action of int
   | End_of_record
 
 let header_of_code cur length = function
   | 0x00 ->
     assert (length = 2);
-    Version (cursor_getshort cur)
+    let v = cursor_getshort cur in
+    printf "Database format version: 0x%x\n" v;
+    Version v
   | 0x01 ->
     assert (length = 16);
     Header_UUID (cursor_gets cur 16)
   | 0x02 -> Non_default_preferences (cursor_gets cur length)
   | 0x03 -> Tree_display_status (cursor_gets cur length)
   | 0x04 ->
-    assert (length = 8);
+    assert (length = 4);
     Timestamp_of_last_save (cursor_gettime cur)
   | 0x05 -> Who_performed_last_save (cursor_gets cur length)
   | 0x06 -> What_performed_last_save (cursor_gets cur length)
@@ -152,8 +167,9 @@ let header_of_code cur length = function
   | 0x09 -> Database_name (cursor_gets cur length)
   | 0x0a -> Database_description (cursor_gets cur length)
   | 0x0b -> Database_filters (cursor_gets cur length)
+  | 0x0f -> Recently_used_entries (cursor_gets cur length)
   | 0xff -> End_of_header
-  | code -> failwith ("header_of_code: unknown code: " ^ string_of_int code)
+  | code -> failwith (sprintf "header_of_code: unknown code: 0x%x" code)
 
 let entry_of_code cur length = function
   | 0x01 ->
@@ -187,10 +203,15 @@ let entry_of_code cur length = function
   | 0x0f -> Password_history (cursor_gets cur length)
   | 0x10 -> Password_policy (cursor_gets cur length)
   | 0x11 ->
+    assert (length = 4);
+    Password_expiry_interval (cursor_getlong cur)
+  | 0x13 ->
     assert (length = 2);
-    Password_expiry_interval (cursor_getshort cur)
+    Double_click_action (cursor_getshort cur)
+  | 0x14 -> Email_address (cursor_gets cur length)
+  | 0x17 -> Swift_double_click_action (cursor_getshort cur)
   | 0xFF -> End_of_record
-  | code -> failwith ("entry_of_code: unknown code: " ^ string_of_int code)
+  | code -> failwith (sprintf "entry_of_code: unknown code: 0x%x" code)
 
 (*
  KEYSTRETCH/hash implementation as specified here:
@@ -212,7 +233,7 @@ let read_blob chan n =
       Buffer.add_char b (input_char chan);
       read_chars b (i - 1)
   in
-  Buffer.contents (read_chars (Buffer.create n) n)
+  Buffer.to_bytes (read_chars (Buffer.create n) n)
 
 let load_clrtxt_header chan =
   let in_bits off bits =
@@ -226,6 +247,7 @@ let load_clrtxt_header chan =
   let clrtxt_header =
     { tag = in_bits 0 32;
       salt = in_bits 32 256;
+      (* XXX: assert 64-bit *)
       iter = Bin.unpack32_le (in_bits 288 32);
       hofp = in_bits 320 256;
       b1 = in_bits 576 128;
@@ -237,12 +259,12 @@ let load_clrtxt_header chan =
   in
   clrtxt_header
 
-let buffer_of_string s =
-  let b = Buffer.create (String.length s) in
-  Buffer.add_string b s;
-  b
+let buffer_of_bytes b =
+  let buf = Buffer.create (Bytes.length b) in
+  Buffer.add_bytes buf b;
+  buf
 
-let decrypt_database k l ch chan =
+let decrypt_database k _l ch chan =
   let cbc = Cbc.init ch.iv in
   let cur =
     { ctx = Twofish.init k;
@@ -260,7 +282,7 @@ let decrypt_database k l ch chan =
     let b = cursor_getchar cur in
     let c = cursor_getchar cur in
     let d = cursor_getchar cur in
-    let x = Bin.unpack32_le (sprintf "%c%c%c%c" a b c d) in
+    let x = Bin.unpack32_le (Bytes.of_string (sprintf "%c%c%c%c" a b c d)) in
     let code = int_of_char (cursor_getchar cur) in
     f cur x code
   in
@@ -288,7 +310,7 @@ let make_keys ch p' =
   let join ctx a b =
     let a' = Twofish.decrypt ctx a in
     let b' = Twofish.decrypt ctx b in
-    String.concat "" [ a'; b' ]
+    Bytes.concat (Bytes.of_string "") [ a'; b' ]
   in
   let joinkeys = join (Twofish.init p') in
   let k = joinkeys ch.b1 ch.b2 in
@@ -300,13 +322,13 @@ let load_database fn passphrase =
   let chan = open_in_gen [ Open_binary ] 0 fn in
   try
     let ch = load_clrtxt_header chan in
-    let b_passphrase = buffer_of_string passphrase in
-    let b_salt = buffer_of_string ch.salt in
+    let b_passphrase = buffer_of_bytes (Bytes.of_string passphrase) in
+    let b_salt = buffer_of_bytes ch.salt in
     let p' = keystretch b_passphrase b_salt ch.iter in
     let hofp' = Sha256.digest p' in
-    if buffer_of_string ch.hofp = hofp'
+    if buffer_of_bytes ch.hofp = hofp'
     then (
-      let k, l, iv = make_keys ch (Buffer.contents p') in
+      let k, l, _iv = make_keys ch (Buffer.to_bytes p') in
       let hdrs, recs = decrypt_database k l ch chan in
       close_in chan;
       hdrs, recs)
@@ -338,6 +360,9 @@ let format_field = function
   | Password_modification_time _
   | Creation_time _
   | Record_UUID _
+  | Double_click_action _
+  | Email_address _
+  | Swift_double_click_action _
   | End_of_record -> ""
 
 let rec dump_fields = function
@@ -361,7 +386,7 @@ let parse_args () =
   let safe_file = ref (home ^ "/.pwsafe.psafe3") in
   let dump_all = ref false in
   let dump_title = ref "" in
-  let pattern = ref ".*" in
+  let _pattern = ref ".*" in
   Arg.parse
     [ "-s", Arg.Set_string safe_file, "path Path to PSAFE3 file";
       "-d", Arg.Set dump_all, " Display all records";
