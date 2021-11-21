@@ -1,12 +1,14 @@
 opws
 ====
 
-OCaml Password Safe
-
-This is a work in progress / proof of concept.
+An implementation of Password Safe in OCaml.
 
 Status
 --
+
+It will *probably* be able to successfully decrypt your .psafe3 database and
+print to a text file.
+
 
 This was my first OCaml project, started 12 years ago (2009) with not much
 attention. Freshened up recently to build with dune. There's lots of room
