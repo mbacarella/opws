@@ -143,7 +143,7 @@ type record =
   | Password_expiry_interval of int
   | Double_click_action of int
   | Email_address of string
-  | Swift_double_click_action of int
+  | Shift_double_click_action of int
   | End_of_record
 
 let header_of_code cur length = function
@@ -209,7 +209,7 @@ let entry_of_code cur length = function
     assert (length = 2);
     Double_click_action (cursor_getshort cur)
   | 0x14 -> Email_address (cursor_gets cur length)
-  | 0x17 -> Swift_double_click_action (cursor_getshort cur)
+  | 0x17 -> Shift_double_click_action (cursor_getshort cur)
   | 0xFF -> End_of_record
   | code -> failwith (sprintf "entry_of_code: unknown code: 0x%x" code)
 
@@ -362,7 +362,7 @@ let format_field = function
   | Record_UUID _
   | Double_click_action _
   | Email_address _
-  | Swift_double_click_action _
+  | Shift_double_click_action _
   | End_of_record -> ""
 
 let rec dump_fields = function
