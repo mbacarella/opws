@@ -121,6 +121,8 @@ type header =
   | Database_description of string
   | Database_filters of string
   | Recently_used_entries of string
+  (*| Named Password Policies of string *)
+  | Empty_groups of string
   | End_of_header
 
 type record =
@@ -144,6 +146,8 @@ type record =
   | Double_click_action of int
   | Email_address of string
   | Shift_double_click_action of int
+  (*| Protected of bool *)
+  | Own_symbols_for_password of string
   | End_of_record
 
 let header_of_code cur length = function
@@ -168,6 +172,7 @@ let header_of_code cur length = function
   | 0x0a -> Database_description (cursor_gets cur length)
   | 0x0b -> Database_filters (cursor_gets cur length)
   | 0x0f -> Recently_used_entries (cursor_gets cur length)
+  | 0x11 -> Empty_groups (cursor_gets cur length)
   | 0xff -> End_of_header
   | code -> failwith (sprintf "header_of_code: unknown code: 0x%x" code)
 
@@ -209,6 +214,7 @@ let entry_of_code cur length = function
     assert (length = 2);
     Double_click_action (cursor_getshort cur)
   | 0x14 -> Email_address (cursor_gets cur length)
+  | 0x16 -> Own_symbols_for_password (cursor_gets cur length)
   | 0x17 -> Shift_double_click_action (cursor_getshort cur)
   | 0xFF -> End_of_record
   | code -> failwith (sprintf "entry_of_code: unknown code: 0x%x" code)
@@ -362,6 +368,7 @@ let format_field = function
   | Record_UUID _
   | Double_click_action _
   | Email_address _
+  | Own_symbols_for_password _
   | Shift_double_click_action _
   | End_of_record -> ""
 
