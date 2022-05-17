@@ -162,8 +162,10 @@ let header_of_code cur length = function
   | 0x02 -> Non_default_preferences (cursor_gets cur length)
   | 0x03 -> Tree_display_status (cursor_gets cur length)
   | 0x04 ->
-    assert (length = 4);
-    Timestamp_of_last_save (cursor_gettime cur)
+    assert (length = 8 || length = 4);
+    if length = 4
+    then Timestamp_of_last_save (cursor_gettime cur)
+    else Timestamp_of_last_save (int_of_string ("0x"^cursor_gets cur length))
   | 0x05 -> Who_performed_last_save (cursor_gets cur length)
   | 0x06 -> What_performed_last_save (cursor_gets cur length)
   | 0x07 -> Last_saved_by_user (cursor_gets cur length)
